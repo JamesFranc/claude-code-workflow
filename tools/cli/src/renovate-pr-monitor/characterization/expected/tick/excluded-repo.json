@@ -1,0 +1,48 @@
+{
+  "dryRun": {
+    "exit": 0,
+    "stdout": "[monitor] starting — mode=once verbose dry-run, author=app/renovate, poll=900s\n[monitor] scope: owners=[acme] repos=[] excludes=[acme/foo]\n[monitor] hold-for-human-prs=false nonhuman-authors=[\"app/renovate\"]\n[monitor] state=<tmp>/state/state.json\n[tick] 2026-09-24T12:00:00Z — found 1 open Renovate PR(s) in scope\n[tick] acme/foo#1 — skip (excluded repo)\n[tick] done — no escalations\n",
+    "stderr": "",
+    "ghCalls": [
+      [
+        "search",
+        "prs",
+        "--author",
+        "app/renovate",
+        "--state",
+        "open",
+        "--limit",
+        "100",
+        "--json",
+        "repository,number,title,url",
+        "--owner",
+        "acme"
+      ]
+    ],
+    "state": null
+  },
+  "live": {
+    "exit": 0,
+    "stdout": "[monitor] starting — mode=once verbose, author=app/renovate, poll=900s\n[monitor] scope: owners=[acme] repos=[] excludes=[acme/foo]\n[monitor] hold-for-human-prs=false nonhuman-authors=[\"app/renovate\"]\n[monitor] state=<tmp>/state/state.json\n[tick] 2026-09-24T12:00:00Z — found 1 open Renovate PR(s) in scope\n[tick] acme/foo#1 — skip (excluded repo)\n[tick] done — no escalations\n",
+    "stderr": "",
+    "ghCalls": [
+      [
+        "search",
+        "prs",
+        "--author",
+        "app/renovate",
+        "--state",
+        "open",
+        "--limit",
+        "100",
+        "--json",
+        "repository,number,title,url",
+        "--owner",
+        "acme"
+      ]
+    ],
+    "state": {
+      "prs": {}
+    }
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "name": "denormans-workflow",
+  "description": "Marketplace for the workflow plugin for Claude Code",
+  "owner": {
+    "name": "Michael D. Norman"
+  },
+  "plugins": [
+    {
+      "name": "workflow",
+      "description": "Workflow skills, hooks, agents, and tools for Claude Code",
+      "version": "1.98.0",
+      "license": "GPL-3.0-or-later",
+      "source": "./"
+    }
+  ]
+}

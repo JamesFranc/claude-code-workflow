@@ -1,0 +1,130 @@
+{
+  "dryRun": {
+    "exit": 0,
+    "stdout": "[monitor] starting — mode=once verbose dry-run, author=app/renovate, poll=900s\n[monitor] scope: owners=[acme] repos=[] excludes=[]\n[monitor] hold-for-human-prs=false nonhuman-authors=[\"app/renovate\"]\n[monitor] state=<tmp>/state/state.json\n[tick] 2026-09-24T12:00:00Z — found 1 open Renovate PR(s) in scope\n[tick] acme/foo#1 — mergeable — chore(deps): update dependency foo to v1.2.3\n[dry-run] would approve + merge acme/foo#1 (expected head abc123)\n[tick] done — no escalations\n",
+    "stderr": "",
+    "ghCalls": [
+      [
+        "search",
+        "prs",
+        "--author",
+        "app/renovate",
+        "--state",
+        "open",
+        "--limit",
+        "100",
+        "--json",
+        "repository,number,title,url",
+        "--owner",
+        "acme"
+      ],
+      [
+        "repo",
+        "view",
+        "acme/foo",
+        "--json",
+        "isArchived",
+        "--jq",
+        ".isArchived"
+      ],
+      [
+        "pr",
+        "view",
+        "1",
+        "--repo",
+        "acme/foo",
+        "--json",
+        "number,title,url,headRefName,headRefOid,mergeStateStatus,mergeable,baseRefName,statusCheckRollup,reviewDecision,body"
+      ]
+    ],
+    "state": {
+      "prs": {
+        "acme/foo#1": {
+          "agentBusy": true,
+          "agentStartedAt": "2026-09-24T09:59:59Z",
+          "headSha": "abc123",
+          "lastSeenAt": "2026-09-24T09:59:59Z"
+        }
+      }
+    }
+  },
+  "live": {
+    "exit": 0,
+    "stdout": "[monitor] starting — mode=once verbose, author=app/renovate, poll=900s\n[monitor] scope: owners=[acme] repos=[] excludes=[]\n[monitor] hold-for-human-prs=false nonhuman-authors=[\"app/renovate\"]\n[monitor] state=<tmp>/state/state.json\n[tick] 2026-09-24T12:00:00Z — found 1 open Renovate PR(s) in scope\n[tick] acme/foo#1 — mergeable — chore(deps): update dependency foo to v1.2.3\n[tick] acme/foo#1 — merged (mergeable)\n[tick] done — no escalations\n",
+    "stderr": "",
+    "ghCalls": [
+      [
+        "search",
+        "prs",
+        "--author",
+        "app/renovate",
+        "--state",
+        "open",
+        "--limit",
+        "100",
+        "--json",
+        "repository,number,title,url",
+        "--owner",
+        "acme"
+      ],
+      [
+        "repo",
+        "view",
+        "acme/foo",
+        "--json",
+        "isArchived",
+        "--jq",
+        ".isArchived"
+      ],
+      [
+        "pr",
+        "view",
+        "1",
+        "--repo",
+        "acme/foo",
+        "--json",
+        "number,title,url,headRefName,headRefOid,mergeStateStatus,mergeable,baseRefName,statusCheckRollup,reviewDecision,body"
+      ],
+      [
+        "pr",
+        "view",
+        "1",
+        "--repo",
+        "acme/foo",
+        "--json",
+        "headRefOid",
+        "--jq",
+        ".headRefOid"
+      ],
+      [
+        "repo",
+        "view",
+        "acme/foo",
+        "--json",
+        "squashMergeAllowed,mergeCommitAllowed,rebaseMergeAllowed"
+      ],
+      [
+        "pr",
+        "review",
+        "--approve",
+        "--repo",
+        "acme/foo",
+        "1"
+      ],
+      [
+        "pr",
+        "merge",
+        "--squash",
+        "--delete-branch",
+        "--match-head-commit",
+        "abc123",
+        "--repo",
+        "acme/foo",
+        "1"
+      ]
+    ],
+    "state": {
+      "prs": {}
+    }
+  }
+}

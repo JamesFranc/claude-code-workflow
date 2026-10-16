@@ -1,0 +1,213 @@
+#!/usr/bin/env python3
+"""List Claude Code sessions for the current (or given) directory.
+
+Usage:
+    claude-sessions              # sessions for $PWD
+    claude-sessions /some/path   # sessions for a specific directory
+    claude-sessions -a           # all sessions across all projects
+    claude-sessions -n 20        # show more results (default: 10)
+
+Prints session ID, date, line count, and first real user message so you
+can pick the right one to resume with:  claude --resume <session-id>
+"""
+
+import json
+import os
+import re
+import sys
+import argparse
+from datetime import datetime
+from pathlib import Path
+
+CLAUDE_DIR = Path.home() / ".claude"
+PROJECTS_DIR = CLAUDE_DIR / "projects"
+
+
+def dir_to_project_key(directory: str) -> str:
+    """Convert an absolute path to Claude's project directory name."""
+    return "-" + directory.lstrip("/").replace("/", "-")
+
+
+def project_key_to_dir(key: str) -> str:
+    """Convert a project key back to an absolute path (best-effort)."""
+    parts = key.lstrip("-").split("-")
+    # Reconstruct — ambiguous for dirs with hyphens, but good enough for display
+    return "/" + "/".join(parts)
+
+
+def session_title(filepath: str) -> tuple[str, str]:
+    """Extract session title: custom-title or summary, plus first user message."""
+    title = ""
+    first_msg = ""
+    try:
+        with open(filepath) as f:
+            for line in f:
+                obj = json.loads(line)
+                msg_type = obj.get("type", "")
+
+                # Grab the title: the LAST custom-title wins, because /rename appends a new
+                # record and the most recent one is the session's current name. An empty
+                # customTitle leaves the previous one standing rather than blanking it.
+                if msg_type == "custom-title":
+                    title = obj.get("customTitle", "") or title
+                elif msg_type == "summary" and not title:
+                    title = obj.get("summary", "")
+
+                # Grab first real user message (keep scanning past system junk)
+                if not first_msg and msg_type == "user" and not obj.get("isMeta"):
+                    msg = obj.get("message", {})
+                    content = msg.get("content", "")
+                    if isinstance(content, list):
+                        texts = [p["text"] for p in content
+                                 if isinstance(p, dict) and p.get("type") == "text"]
+                        content = " ".join(texts)
+                    if isinstance(content, str):
+                        clean = re.sub(r"<[^>]+>", "", content).strip()
+                        clean = " ".join(clean.split())
+                        skip = ("exit", "/exit", "Bye", "Catch you later",
+                                "Caveat:", "Goodbye")
+                        if clean and len(clean) >= 3 and not any(clean.startswith(s) for s in skip):
+                            first_msg = clean[:120]
+
+                # No early exit: a /rename can append a custom-title record anywhere, including
+                # after the first user message, so the last one is only known at end of file.
+                # The caller already reads each transcript in full via line_count().
+    except Exception:
+        pass
+    return title, first_msg
+
+
+def session_timestamp(filepath: str) -> str:
+    """Get the timestamp of the first entry in a session file."""
+    try:
+        with open(filepath) as f:
+            first = json.loads(f.readline())
+            ts = first.get("timestamp", "")
+            if ts:
+                dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+                return dt.strftime("%Y-%m-%d %H:%M")
+    except Exception:
+        pass
+    # Fall back to file mtime
+    try:
+        mtime = os.path.getmtime(filepath)
+        return datetime.fromtimestamp(mtime).strftime("%Y-%m-%d %H:%M")
+    except Exception:
+        return "unknown"
+
+
+def line_count(filepath: str) -> int:
+    """Rough session size by line count."""
+    try:
+        with open(filepath) as f:
+            return sum(1 for _ in f)
+    except Exception:
+        return 0
+
+
+def list_sessions(project_dirs: list[Path], limit: int, page: int, show_unnamed: bool):
+    """List sessions from the given project directories."""
+    sessions = []
+    unnamed_count = 0
+    for pdir in project_dirs:
+        if not pdir.is_dir():
+            continue
+        project_key = pdir.name
+        for jsonl in pdir.glob("*.jsonl"):
+            session_id = jsonl.stem
+            # Skip non-UUID filenames
+            if len(session_id) != 36 or session_id.count("-") != 4:
+                continue
+            lines = line_count(str(jsonl))
+            if lines < 3:
+                continue  # skip empty/trivial sessions
+            ts = session_timestamp(str(jsonl))
+            title, msg = session_title(str(jsonl))
+            if not title and not msg:
+                continue  # skip sessions with no real content
+            if not title and not show_unnamed:
+                unnamed_count += 1
+                continue
+            sessions.append((ts, session_id, lines, project_key, title, msg))
+
+    # Sort by timestamp descending (most recent first)
+    sessions.sort(key=lambda x: x[0], reverse=True)
+
+    if not sessions:
+        print("No sessions found.")
+        return
+
+    total = len(sessions)
+    total_pages = (total + limit - 1) // limit
+    page = max(1, min(page, total_pages))
+    start = (page - 1) * limit
+    end = start + limit
+    page_sessions = sessions[start:end]
+
+    for ts, sid, lines, pkey, title, msg in page_sessions:
+        title_part = f"  \033[1;33m{title}\033[0m" if title else ""
+        print(f"\033[1;36m{sid}\033[0m{title_part}")
+        print(f"  {ts}  ({lines} lines)  {project_key_to_dir(pkey)}")
+        if msg:
+            print(f"  \033[2m{msg}\033[0m")
+        print()
+
+    unnamed_note = f", {unnamed_count} unnamed hidden" if unnamed_count else ""
+    print(f"\033[2mPage {page}/{total_pages} ({total} sessions{unnamed_note}) | claude --resume <session-id>\033[0m")
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="Find Claude Code sessions by directory"
+    )
+    parser.add_argument(
+        "directory", nargs="?", default=os.getcwd(),
+        help="Directory to find sessions for (default: current dir)"
+    )
+    parser.add_argument(
+        "-a", "--all", action="store_true",
+        help="Show sessions from all projects"
+    )
+    parser.add_argument(
+        "-n", "--limit", type=int, default=10,
+        help="Max sessions per page (default: 10)"
+    )
+    parser.add_argument(
+        "-p", "--page", type=int, default=1,
+        help="Page number (default: 1)"
+    )
+    parser.add_argument(
+        "-u", "--unnamed", action="store_true",
+        help="Include unnamed sessions (no custom title)"
+    )
+    args = parser.parse_args()
+
+    if not PROJECTS_DIR.is_dir():
+        print(f"No Claude projects directory found at {PROJECTS_DIR}")
+        sys.exit(1)
+
+    if args.all:
+        project_dirs = [p for p in PROJECTS_DIR.iterdir() if p.is_dir()]
+    else:
+        target = os.path.abspath(args.directory)
+        key = dir_to_project_key(target)
+        project_dir = PROJECTS_DIR / key
+        if not project_dir.is_dir():
+            print(f"No sessions found for directory: {target}")
+            print(f"  (looked for {project_dir})")
+            print()
+            # Suggest close matches
+            all_keys = [p.name for p in PROJECTS_DIR.iterdir() if p.is_dir()]
+            matches = [k for k in all_keys if key.rstrip("-") in k or k in key]
+            if matches:
+                print("Similar projects:")
+                for m in matches:
+                    print(f"  {project_key_to_dir(m)}")
+            sys.exit(1)
+        project_dirs = [project_dir]
+
+    list_sessions(project_dirs, args.limit, args.page, args.unnamed)
+
+
+if __name__ == "__main__":
+    main()

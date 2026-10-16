@@ -1,0 +1,112 @@
+{
+  "dryRun": {
+    "exit": 0,
+    "stdout": "[monitor] starting — mode=once verbose dry-run, author=app/renovate, poll=900s\n[monitor] scope: owners=[acme] repos=[] excludes=[]\n[monitor] hold-for-human-prs=false nonhuman-authors=[\"app/renovate\"]\n[monitor] state=<tmp>/state/state.json\n[tick] 2026-09-24T12:00:00Z — found 1 open Renovate PR(s) in scope\n[tick] acme/foo#1 — ci-failed — chore(deps): update dependency foo to v1.2.3\n[dry-run] would retry failed jobs on acme/foo@failedsha1\n[tick] done — no escalations\n",
+    "stderr": "",
+    "ghCalls": [
+      [
+        "search",
+        "prs",
+        "--author",
+        "app/renovate",
+        "--state",
+        "open",
+        "--limit",
+        "100",
+        "--json",
+        "repository,number,title,url",
+        "--owner",
+        "acme"
+      ],
+      [
+        "repo",
+        "view",
+        "acme/foo",
+        "--json",
+        "isArchived",
+        "--jq",
+        ".isArchived"
+      ],
+      [
+        "pr",
+        "view",
+        "1",
+        "--repo",
+        "acme/foo",
+        "--json",
+        "number,title,url,headRefName,headRefOid,mergeStateStatus,mergeable,baseRefName,statusCheckRollup,reviewDecision,body"
+      ]
+    ],
+    "state": null
+  },
+  "live": {
+    "exit": 0,
+    "stdout": "[monitor] starting — mode=once verbose, author=app/renovate, poll=900s\n[monitor] scope: owners=[acme] repos=[] excludes=[]\n[monitor] hold-for-human-prs=false nonhuman-authors=[\"app/renovate\"]\n[monitor] state=<tmp>/state/state.json\n[tick] 2026-09-24T12:00:00Z — found 1 open Renovate PR(s) in scope\n[tick] acme/foo#1 — ci-failed — chore(deps): update dependency foo to v1.2.3\n[tick] acme/foo#1 — CI retry #1 queued\n[tick] done — no escalations\n",
+    "stderr": "",
+    "ghCalls": [
+      [
+        "search",
+        "prs",
+        "--author",
+        "app/renovate",
+        "--state",
+        "open",
+        "--limit",
+        "100",
+        "--json",
+        "repository,number,title,url",
+        "--owner",
+        "acme"
+      ],
+      [
+        "repo",
+        "view",
+        "acme/foo",
+        "--json",
+        "isArchived",
+        "--jq",
+        ".isArchived"
+      ],
+      [
+        "pr",
+        "view",
+        "1",
+        "--repo",
+        "acme/foo",
+        "--json",
+        "number,title,url,headRefName,headRefOid,mergeStateStatus,mergeable,baseRefName,statusCheckRollup,reviewDecision,body"
+      ],
+      [
+        "run",
+        "list",
+        "--repo",
+        "acme/foo",
+        "--commit",
+        "failedsha1",
+        "--limit",
+        "100",
+        "--json",
+        "databaseId,conclusion",
+        "--jq",
+        ".[] | select(.conclusion == \"failure\" or .conclusion == \"timed_out\"\n            or .conclusion == \"cancelled\" or .conclusion == \"startup_failure\") | .databaseId"
+      ],
+      [
+        "run",
+        "rerun",
+        "36020981000",
+        "--failed",
+        "--repo",
+        "acme/foo"
+      ]
+    ],
+    "state": {
+      "prs": {
+        "acme/foo#1": {
+          "headSha": "failedsha1",
+          "lastSeenAt": "2026-09-24T12:00:00Z",
+          "ciRetries": 1
+        }
+      }
+    }
+  }
+}

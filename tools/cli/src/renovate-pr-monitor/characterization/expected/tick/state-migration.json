@@ -1,0 +1,104 @@
+{
+  "dryRun": {
+    "exit": 0,
+    "stdout": "[monitor] starting — mode=once verbose dry-run, author=app/renovate, poll=900s\n[monitor] scope: owners=[acme] repos=[] excludes=[]\n[monitor] hold-for-human-prs=false nonhuman-authors=[\"app/renovate\"]\n[monitor] state=<tmp>/state/state.json\n[tick] 2026-09-24T12:00:00Z — found 1 open Renovate PR(s) in scope\n[tick] acme/foo#1 — major-skip — chore(deps): update dependency foo to v2.0.0 (major)\n[tick] done — no escalations\n",
+    "stderr": "",
+    "ghCalls": [
+      [
+        "search",
+        "prs",
+        "--author",
+        "app/renovate",
+        "--state",
+        "open",
+        "--limit",
+        "100",
+        "--json",
+        "repository,number,title,url",
+        "--owner",
+        "acme"
+      ],
+      [
+        "repo",
+        "view",
+        "acme/foo",
+        "--json",
+        "isArchived",
+        "--jq",
+        ".isArchived"
+      ],
+      [
+        "pr",
+        "view",
+        "1",
+        "--repo",
+        "acme/foo",
+        "--json",
+        "number,title,url,headRefName,headRefOid,mergeStateStatus,mergeable,baseRefName,statusCheckRollup,reviewDecision,body"
+      ]
+    ],
+    "state": {
+      "prs": {
+        "acme/foo#1": {
+          "head_sha": "abc123",
+          "ci_retries": 0,
+          "agent_busy": false,
+          "agent_started_at": "2026-09-24T11:50:00Z",
+          "major_notified": true,
+          "last_seen_at": "2026-06-01T00:00:00Z"
+        }
+      }
+    }
+  },
+  "live": {
+    "exit": 0,
+    "stdout": "[monitor] starting — mode=once verbose, author=app/renovate, poll=900s\n[monitor] scope: owners=[acme] repos=[] excludes=[]\n[monitor] hold-for-human-prs=false nonhuman-authors=[\"app/renovate\"]\n[monitor] state=<tmp>/state/state.json\n[tick] 2026-09-24T12:00:00Z — found 1 open Renovate PR(s) in scope\n[tick] acme/foo#1 — major-skip — chore(deps): update dependency foo to v2.0.0 (major)\n[tick] done — no escalations\n",
+    "stderr": "",
+    "ghCalls": [
+      [
+        "search",
+        "prs",
+        "--author",
+        "app/renovate",
+        "--state",
+        "open",
+        "--limit",
+        "100",
+        "--json",
+        "repository,number,title,url",
+        "--owner",
+        "acme"
+      ],
+      [
+        "repo",
+        "view",
+        "acme/foo",
+        "--json",
+        "isArchived",
+        "--jq",
+        ".isArchived"
+      ],
+      [
+        "pr",
+        "view",
+        "1",
+        "--repo",
+        "acme/foo",
+        "--json",
+        "number,title,url,headRefName,headRefOid,mergeStateStatus,mergeable,baseRefName,statusCheckRollup,reviewDecision,body"
+      ]
+    ],
+    "state": {
+      "prs": {
+        "acme/foo#1": {
+          "headSha": "abc123",
+          "ciRetries": 0,
+          "agentBusy": false,
+          "agentStartedAt": "2026-09-24T11:50:00Z",
+          "majorNotified": true,
+          "lastSeenAt": "2026-09-24T12:00:00Z"
+        }
+      }
+    }
+  }
+}

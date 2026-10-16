@@ -1,0 +1,64 @@
+#!/usr/bin/env bash
+# Data-driven fake `gh` for the renovate-pr-monitor characterization. $FAKE_GH_RULES is a JSON
+# array of {match, stdout?, stderr?, exit?, delaySeconds?, once?}. The first rule whose `match`
+# regex matches the space-joined argv answers the call. `delaySeconds` sleeps before answering —
+# long enough for a test to deliver a signal while this call is genuinely in flight. `once: true`
+# removes the matched rule from $FAKE_GH_RULES after it answers, so a later identical call falls
+# through to the next matching rule instead of matching this one again. Every call's argv is
+# appended to $FAKE_GH_LOG as one JSON array per line. An unmatched call is recorded in
+# $FAKE_GH_LOG.unmatched and exits 97, and the harness refuses such a capture: a fixture gap must
+# never be recorded as behaviour.
+#
+# A string `stdout` prints verbatim. Any other `stdout` is JSON: when it is an array it is cut to
+# the caller's --limit, or to gh's own default for that subcommand when there is none. The
+# caller's --jq is then applied, as gh applies it. `stdout` is printed regardless of `exit` — a
+# rule can simulate a nonzero exit that still left parseable JSON on stdout, as real `gh` does
+# mid-pagination.
+set -euo pipefail
+
+printf '%s\0' "$@" | jq -Rsc 'split("\u0000")[:-1]' >> "$FAKE_GH_LOG"
+argv="$*"
+rule=$(jq -c --arg argv "$argv" 'first(.[] | select(.match as $m | $argv | test($m))) // empty' "$FAKE_GH_RULES")
+if [[ -z "$rule" ]]; then
+  echo "$argv" >> "$FAKE_GH_LOG.unmatched"
+  echo "fake gh: unmatched call: $argv" >&2
+  exit 97
+fi
+
+if jq -e '.once == true' <<< "$rule" >/dev/null; then
+  idx=$(jq --arg argv "$argv" 'first(to_entries[] | select(.value.match as $m | $argv | test($m)) | .key)' "$FAKE_GH_RULES")
+  jq --argjson i "$idx" 'del(.[$i])' "$FAKE_GH_RULES" > "$FAKE_GH_RULES.tmp"
+  mv "$FAKE_GH_RULES.tmp" "$FAKE_GH_RULES"
+fi
+
+delay=$(jq -r '.delaySeconds // 0' <<< "$rule")
+[[ "$delay" == "0" ]] || sleep "$delay"
+
+jq -j '.stderr // ""' <<< "$rule" >&2
+
+# gh's documented --limit defaults (see `gh <cmd> --help`).
+case "$1 $2" in
+  "search prs") limit=30 ;;
+  "run list")   limit=20 ;;
+  "pr list")    limit=30 ;;
+  *)            limit="" ;;
+esac
+jq_expr="."
+shift 2
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --limit|-L) limit="$2"; shift 2 ;;
+    --jq|-q)    jq_expr="$2"; shift 2 ;;
+    *) shift ;;
+  esac
+done
+
+if jq -e '.stdout | type == "string"' <<< "$rule" >/dev/null; then
+  jq -j '.stdout' <<< "$rule"
+elif jq -e 'has("stdout")' <<< "$rule" >/dev/null; then
+  jq -c --arg limit "$limit" '.stdout | if type == "array" and $limit != "" then .[:($limit | tonumber)] else . end' <<< "$rule" \
+    | jq -rc "$jq_expr"
+fi
+
+code=$(jq -r '.exit // 0' <<< "$rule")
+exit "$code"

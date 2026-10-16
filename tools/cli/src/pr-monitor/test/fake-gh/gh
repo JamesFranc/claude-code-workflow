@@ -1,0 +1,61 @@
+#!/usr/bin/env bash
+# Fake `gh` for gh.test.ts's fetchReviews/fetchUnresolvedThreads failure-signal tests. Succeeds for
+# `pr view` and `pr checks`, and for both GraphQL queries unless FAIL_REVIEWS or FAIL_THREADS (from
+# the inherited environment) says otherwise — letting each test fail exactly one fetch while the
+# rest of fetchPrState proceeds normally. CHECKS_JSON, when set, is the `pr checks` payload.
+# NO_CHECKS=1 makes `pr checks` fail as the real gh does on a PR with no CI: exit 1, nothing on
+# stdout, "no checks reported on the '<branch>' branch" on stderr. A GH_SLEEP_SECS replaces
+# the process with a sleep of that length, standing in for a hung gh.
+set -u
+
+if [ -n "${GH_SLEEP_SECS:-}" ]; then
+  exec sleep "$GH_SLEEP_SECS"
+fi
+
+if [ "$1" = "pr" ] && [ "$2" = "view" ]; then
+  echo '{"state":"open","isDraft":false,"mergeable":"UNKNOWN","mergeStateStatus":"UNKNOWN","headRefOid":"abc123","comments":[]}'
+  exit 0
+fi
+
+if [ "$1" = "pr" ] && [ "$2" = "checks" ]; then
+  if [ "${NO_CHECKS:-}" = "1" ]; then
+    echo "no checks reported on the 'fake-branch' branch" >&2
+    exit 1
+  fi
+  echo "${CHECKS_JSON:-[]}"
+  exit 0
+fi
+
+if [ "$1" = "api" ] && [ "$2" = "graphql" ]; then
+  query=""
+  for arg in "$@"; do
+    case "$arg" in
+      query=*) query="$arg" ;;
+    esac
+  done
+  case "$query" in
+    *"reviews(first:"*)
+      if [ "${FAIL_REVIEWS:-}" = "1" ]; then
+        echo "fake gh: reviews query failed" >&2
+        exit 1
+      fi
+      echo '{"data":{"repository":{"pullRequest":{"reviews":{"pageInfo":{"hasNextPage":false,"endCursor":null},"nodes":[]}}}}}'
+      exit 0
+      ;;
+    *"reviewThreads(first:"*)
+      if [ "${FAIL_THREADS:-}" = "1" ]; then
+        echo "fake gh: reviewThreads query failed" >&2
+        exit 1
+      fi
+      echo '{"data":{"repository":{"pullRequest":{"reviewThreads":{"pageInfo":{"hasNextPage":false,"endCursor":null},"nodes":[]}}}}}'
+      exit 0
+      ;;
+    *)
+      echo "fake gh: unrecognized graphql query" >&2
+      exit 1
+      ;;
+  esac
+fi
+
+echo "fake gh: unrecognized args: $*" >&2
+exit 1

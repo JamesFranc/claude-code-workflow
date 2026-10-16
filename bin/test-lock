@@ -1,0 +1,226 @@
+#!/usr/bin/env bash
+# test-lock — agents run by this user take turns running tests (FLOW-420).
+#
+#   test-lock [--beat <session id>] -- <command> [args...]
+#   test-lock status
+#
+# One kernel lock per user, in one fixed directory, serializes every test run by that user's agents
+# on the machine, whatever project it is in. The kernel drops the lock when the process holding it
+# dies, so a killed run never leaves the machine blocked and nothing here has to detect a stale
+# lock. There is no wait limit: some suites run an hour or more on their own.
+#
+# Each state change is printed to stderr the moment it happens, so the agent knows it is waiting and
+# on whom, and does not retry. While waiting and while running it beats the board session: the
+# session's own waker beats only after tool activity, and an agent waiting on a long background run
+# makes none, so without this the board would mark it hung.
+#
+# Runs on macOS's /bin/bash 3.2: no {fd} redirections, no ${var@Q}.
+
+set -uo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+LOCK_DIR="${TEST_LOCK_ROOT:-/tmp}/claude-agent-tests-$(id -u)"
+LOCK_FILE="${LOCK_DIR}/lock"
+HOLDER_FILE="${LOCK_DIR}/holder"
+BEAT_SECONDS="${TEST_LOCK_BEAT_SECONDS:-300}"
+DASHBOARD="${TEST_LOCK_DASHBOARD:-${SCRIPT_DIR}/dashboard}"
+CHILD_PID=""
+BEAT_PID=""
+
+main() {
+    case "${1:-}" in
+        status) print_status ;;
+        --beat | --) run_locked "$@" ;;
+        *) usage ;;
+    esac
+}
+
+run_locked() {
+    local beat_session="${CLAUDE_CODE_SESSION_ID:-}" locker waited_from ran_from rc
+    if [[ "$1" == "--beat" ]]; then
+        [[ -n "${2:-}" ]] || usage
+        beat_session="$2"
+        shift 2
+    fi
+    [[ "${1:-}" == "--" && $# -ge 2 ]] || usage
+    shift
+
+    # A run whose own tests call test-lock would otherwise wait on itself forever.
+    if [[ -n "${TEST_LOCK_HELD:-}" ]]; then
+        exec "$@"
+    fi
+    export TEST_LOCK_HELD=1
+
+    if ! locker="$(find_locker)"; then
+        say "no flock or lockf on this machine — running unlocked"
+        exec "$@"
+    fi
+    # fd 9 holds the lock for as long as this process lives. A sandbox that cannot write the lock
+    # file must not cost the agent its test run.
+    if ! lock_dir_is_ours || ! { exec 9>>"$LOCK_FILE"; } 2>/dev/null; then
+        say "cannot open ${LOCK_FILE} — running unlocked"
+        exec "$@"
+    fi
+
+    start_beat "$beat_session"
+    trap stop_beat EXIT
+
+    waited_from="$(date +%s)"
+    if lock_now "$locker"; then
+        say "lock free — running"
+        record_holder "$*"
+    else
+        say "waiting — held by $(holder_description)"
+        if lock_wait "$locker"; then
+            say "acquired after $(duration_since "$waited_from") — running"
+            record_holder "$*"
+        else
+            say "could not take the lock — running unlocked"
+        fi
+    fi
+
+    ran_from="$(date +%s)"
+    run_command "$@"
+    rc=$?
+    exec 9>&-
+    say "released after $(duration_since "$ran_from"), exit ${rc}"
+    exit "$rc"
+}
+
+print_status() {
+    local locker
+    if ! locker="$(find_locker)" || ! lock_dir_is_ours || ! { exec 9>>"$LOCK_FILE"; } 2>/dev/null; then
+        echo "unknown — cannot open ${LOCK_FILE}"
+        exit 0
+    fi
+    if lock_now "$locker"; then
+        echo "free"
+    else
+        echo "held by $(holder_description)"
+    fi
+    exit 0
+}
+
+# The command does not inherit fd 9: a worker that outlives the run must not keep the lock held
+# after test-lock is gone. It stays in test-lock's process group, so a kill sent to the group
+# reaches it directly; a signal sent only to test-lock is forwarded to it. A background job starts
+# with SIGINT and SIGQUIT ignored; perl restores them before exec, on bash 3.2 and 5 alike, and
+# exits 127 or 126 as the shell does when the command cannot be run.
+run_command() {
+    local rc
+    if command -v perl >/dev/null 2>&1; then
+        perl -e '$SIG{INT}=$SIG{QUIT}="DEFAULT"; exec {$ARGV[0]} @ARGV; print STDERR "test-lock: cannot run $ARGV[0]: $!\n"; exit($!{ENOENT} ? 127 : 126)' "$@" 9>&- <&0 &
+    else
+        "$@" 9>&- <&0 &
+    fi
+    CHILD_PID=$!
+    trap 'forward_signal TERM' TERM
+    trap 'forward_signal INT' INT
+    trap 'forward_signal HUP' HUP
+    while :; do
+        wait "$CHILD_PID"
+        rc=$?
+        # A trapped signal interrupts wait while the command is still running.
+        kill -0 "$CHILD_PID" 2>/dev/null || break
+    done
+    return "$rc"
+}
+
+forward_signal() {
+    kill -"$1" "$CHILD_PID" 2>/dev/null
+}
+
+start_beat() {
+    [[ -n "$1" ]] || return 0
+    beat_loop "$1" "$$" 9>&- &
+    BEAT_PID=$!
+}
+
+# Beats until test-lock stops it, or until test-lock is gone: a SIGKILLed test-lock runs no EXIT
+# trap, and an orphaned beat would keep a finished session looking alive.
+beat_loop() {
+    local session="$1" parent="$2" sleep_pid=""
+    trap '[[ -n "$sleep_pid" ]] && kill "$sleep_pid" 2>/dev/null; exit 0' TERM
+    while kill -0 "$parent" 2>/dev/null; do
+        sleep "$BEAT_SECONDS" &
+        sleep_pid=$!
+        wait "$sleep_pid"
+        kill -0 "$parent" 2>/dev/null || break
+        "$DASHBOARD" session heartbeat --session "$session" >/dev/null 2>&1
+    done
+}
+
+stop_beat() {
+    [[ -n "$BEAT_PID" ]] && kill "$BEAT_PID" 2>/dev/null
+    return 0
+}
+
+# The directory is created private to this user; it must be a real directory this user owns, or
+# another user could point the lock file somewhere else.
+lock_dir_is_ours() {
+    if [[ ! -e "$LOCK_DIR" && ! -L "$LOCK_DIR" ]]; then
+        mkdir -m 700 "$LOCK_DIR" 2>/dev/null
+    fi
+    [[ -d "$LOCK_DIR" && ! -L "$LOCK_DIR" && -O "$LOCK_DIR" ]]
+}
+
+find_locker() {
+    if command -v flock >/dev/null 2>&1; then
+        echo flock
+    elif [[ -x /usr/bin/lockf ]]; then
+        echo lockf
+    else
+        return 1
+    fi
+}
+
+lock_now() {
+    case "$1" in
+        flock) flock -n 9 ;;
+        lockf) /usr/bin/lockf -s -t 0 9 ;;
+    esac
+}
+
+lock_wait() {
+    case "$1" in
+        flock) flock 9 ;;
+        lockf) /usr/bin/lockf -s 9 ;;
+    esac
+}
+
+# Display only — the kernel lock is the sole authority on who holds it.
+record_holder() {
+    { printf '%s running `%s` (pid %s) since %s\n' "$PWD" "$1" "$$" "$(date '+%Y-%m-%d %H:%M:%S')" \
+        > "$HOLDER_FILE"; } 2>/dev/null || true
+}
+
+holder_description() {
+    local line
+    line="$(cat "$HOLDER_FILE" 2>/dev/null)"
+    echo "${line:-another test run}"
+}
+
+duration_since() {
+    local s=$(($(date +%s) - $1))
+    if ((s >= 3600)); then
+        printf '%dh%02dm' $((s / 3600)) $((s % 3600 / 60))
+    elif ((s >= 60)); then
+        printf '%dm%02ds' $((s / 60)) $((s % 60))
+    else
+        printf '%ds' "$s"
+    fi
+}
+
+say() {
+    printf 'test-lock: %s\n' "$*" >&2
+}
+
+usage() {
+    cat >&2 <<'EOF'
+usage: test-lock [--beat <session id>] -- <command> [args...]
+       test-lock status
+EOF
+    exit 2
+}
+
+main "$@"

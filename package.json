@@ -1,0 +1,35 @@
+{
+  "name": "claude-workflow",
+  "version": "1.98.0",
+  "private": true,
+  "license": "GPL-3.0-or-later",
+  "type": "module",
+  "engines": {
+    "node": "^22.22.2 || ^24.15.0 || >=26.0.0"
+  },
+  "scripts": {
+    "typecheck": "pnpm -r typecheck",
+    "test": "pnpm -r test && pnpm test:hooks",
+    "test:hooks": "hooks/run-tests.sh",
+    "lint": "eslint . && node --experimental-transform-types tools/cli/src/main.ts check-refs --root .",
+    "publish-check": "node --experimental-transform-types tools/cli/src/main.ts publish-check",
+    "publish-snapshot": "node --experimental-transform-types tools/cli/src/main.ts publish-snapshot",
+    "prepare": "husky"
+  },
+  "lint-staged": {
+    "*.{ts,js}": [
+      "eslint --fix"
+    ]
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "eslint": "^10.0.3",
+    "eslint-plugin-prettier": "^5.5.5",
+    "husky": "^9.1.7",
+    "lint-staged": "^17.0.0",
+    "prettier": "^3.8.1",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.57.0"
+  },
+  "packageManager": "pnpm@12.8.2+sha512.a5941679663d952c5f0ecc38ba98af98b4dc01b95780354f6894f2f873973cef2f7e2989d7db3ee5393938ae21f62fe06bcdf685d475ddad829a62095d2b8b11"
+}

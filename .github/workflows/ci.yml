@@ -1,0 +1,50 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: ['**']
+    types: [opened, synchronize, reopened]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v7
+        with:
+          # Full history: check-refs' fence-shape tests read specific historical commits (e.g.
+          # 1351aac, 737aff1) as real RED/GREEN inputs, not fixtures. A shallow clone (the
+          # actions/checkout default) doesn't have those objects and `git show <sha>` fails with
+          # "invalid object name". Repo is small (a few MB) so full history costs nothing material.
+          fetch-depth: 0
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v6
+
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: TypeScript typecheck
+        run: pnpm typecheck
+
+      - name: Run ESLint
+        run: pnpm lint
+
+      - name: Report runner parallelism and resolved cap
+        run: node --experimental-transform-types tools/cli/src/test-concurrency/report-cap.ts
+
+      - name: Run tests
+        run: pnpm test

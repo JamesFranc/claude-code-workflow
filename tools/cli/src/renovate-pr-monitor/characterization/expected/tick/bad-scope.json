@@ -1,0 +1,16 @@
+{
+  "dryRun": {
+    "exit": 1,
+    "stdout": "",
+    "stderr": "[monitor] ERROR: RENOVATE_MONITOR_SCOPE is required.\n  Set it to a space/comma-separated list of patterns, e.g.:\n    RENOVATE_MONITOR_SCOPE=\"acme/* me/some-repo\"\n",
+    "ghCalls": [],
+    "state": null
+  },
+  "live": {
+    "exit": 1,
+    "stdout": "",
+    "stderr": "[monitor] ERROR: RENOVATE_MONITOR_SCOPE is required.\n  Set it to a space/comma-separated list of patterns, e.g.:\n    RENOVATE_MONITOR_SCOPE=\"acme/* me/some-repo\"\n",
+    "ghCalls": [],
+    "state": null
+  }
+}

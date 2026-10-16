@@ -1,0 +1,118 @@
+{
+  "dryRun": {
+    "exit": 0,
+    "stdout": "[monitor] starting — mode=once verbose dry-run, author=app/renovate, poll=900s\n[monitor] scope: owners=[acme] repos=[other/lib] excludes=[]\n[monitor] hold-for-human-prs=false nonhuman-authors=[\"app/renovate\"]\n[monitor] state=<tmp>/state/state.json\n[tick] 2026-09-24T12:00:00Z — found 1 open Renovate PR(s) in scope\n[tick] acme/foo#1 — ci-pending — chore(deps): update dependency foo to v1.2.3\n[tick] done — no escalations\n",
+    "stderr": "",
+    "ghCalls": [
+      [
+        "search",
+        "prs",
+        "--author",
+        "app/renovate",
+        "--state",
+        "open",
+        "--limit",
+        "100",
+        "--json",
+        "repository,number,title,url",
+        "--owner",
+        "acme"
+      ],
+      [
+        "search",
+        "prs",
+        "--author",
+        "app/renovate",
+        "--state",
+        "open",
+        "--limit",
+        "100",
+        "--json",
+        "repository,number,title,url",
+        "--repo",
+        "other/lib"
+      ],
+      [
+        "repo",
+        "view",
+        "acme/foo",
+        "--json",
+        "isArchived",
+        "--jq",
+        ".isArchived"
+      ],
+      [
+        "pr",
+        "view",
+        "1",
+        "--repo",
+        "acme/foo",
+        "--json",
+        "number,title,url,headRefName,headRefOid,mergeStateStatus,mergeable,baseRefName,statusCheckRollup,reviewDecision,body"
+      ]
+    ],
+    "state": null
+  },
+  "live": {
+    "exit": 0,
+    "stdout": "[monitor] starting — mode=once verbose, author=app/renovate, poll=900s\n[monitor] scope: owners=[acme] repos=[other/lib] excludes=[]\n[monitor] hold-for-human-prs=false nonhuman-authors=[\"app/renovate\"]\n[monitor] state=<tmp>/state/state.json\n[tick] 2026-09-24T12:00:00Z — found 1 open Renovate PR(s) in scope\n[tick] acme/foo#1 — ci-pending — chore(deps): update dependency foo to v1.2.3\n[tick] done — no escalations\n",
+    "stderr": "",
+    "ghCalls": [
+      [
+        "search",
+        "prs",
+        "--author",
+        "app/renovate",
+        "--state",
+        "open",
+        "--limit",
+        "100",
+        "--json",
+        "repository,number,title,url",
+        "--owner",
+        "acme"
+      ],
+      [
+        "search",
+        "prs",
+        "--author",
+        "app/renovate",
+        "--state",
+        "open",
+        "--limit",
+        "100",
+        "--json",
+        "repository,number,title,url",
+        "--repo",
+        "other/lib"
+      ],
+      [
+        "repo",
+        "view",
+        "acme/foo",
+        "--json",
+        "isArchived",
+        "--jq",
+        ".isArchived"
+      ],
+      [
+        "pr",
+        "view",
+        "1",
+        "--repo",
+        "acme/foo",
+        "--json",
+        "number,title,url,headRefName,headRefOid,mergeStateStatus,mergeable,baseRefName,statusCheckRollup,reviewDecision,body"
+      ]
+    ],
+    "state": {
+      "prs": {
+        "acme/foo#1": {
+          "headSha": "abc123",
+          "lastSeenAt": "2026-09-24T12:00:00Z",
+          "ciRetries": 0
+        }
+      }
+    }
+  }
+}

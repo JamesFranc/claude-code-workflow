@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+has_require=0
+for arg in "$@"; do
+  if [[ "$arg" == "--require" || "$arg" == --require=* ]]; then
+    has_require=1
+    break
+  fi
+done
+
+if [[ "$has_require" == 0 ]]; then
+  echo "check-tools: --require must list at least one tool" >&2
+  exit 2
+fi
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+exec node --experimental-transform-types "${SCRIPT_DIR}/tools/cli/src/main.ts" check-tools "$@"
