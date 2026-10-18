@@ -60,7 +60,11 @@ A note tells the user something worth keeping that needs nothing from them:
 It never puts the session under "Needs me", nothing answers it, and it is not a wait — never park on
 one. Post one **on judgement**, when something the user would want later would otherwise be lost in
 the thread — and never about a withdrawn question, not even why it was withdrawn. A progress update
-is not a note, and anything that needs an answer is a question. Three notes are prescribed, not
-judged: the Renovate monitor's `all-done` summary, the info-note reply that §6 prescribes where a board comment gets one, and the report of a ticket the workflow meant to move and could not. See §8.
+is not a note, and anything that needs an answer is a question. A note never asks for a go-ahead:
+anything that asks the user to approve, merge, flip, proceed or validate is `--type approval`,
+however the moment was reached and whether or not the step's own instructions are still in context.
+A note posted for one does not count as the step done; withdraw it
+(`dashboard item withdraw --item "<id>"`) and post the approval. Every `--type info` post's result
+carries this reminder in a `note` field. Three notes are prescribed, not judged: the Renovate monitor's `all-done` summary, the info-note reply that §6 prescribes where a board comment gets one, and the report of a ticket the workflow meant to move and could not. See §8.
 
 Full protocol: references/dashboard-protocol.md — read it before your first board action in a session.

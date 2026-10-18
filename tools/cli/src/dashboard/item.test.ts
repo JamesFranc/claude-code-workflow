@@ -5140,7 +5140,7 @@ test('runItemConsume --all: reports items the backend skipped as unread', () => 
 // Tests: info notes (FLOW-389) — runItemAdd --type info
 // ---------------------------------------------------------------------------
 
-test('info note: posts --type info and prints the itemId, but never touches openItemIds', () => {
+test('info note: posts --type info and prints the itemId with the approval reminder, but never touches openItemIds', () => {
   process.env.AI_WORKFLOW_APP_BIN = writeStub(tmpDir, 0, '{"itemId":"note-1"}')
   const sessionId = process.env.CLAUDE_CODE_SESSION_ID!
   registerRootNode(sessionId)
@@ -5153,12 +5153,35 @@ test('info note: posts --type info and prints the itemId, but never touches open
   const addCalls = readCalls(tmpDir).filter((c) => c.startsWith('item add'))
   assert.equal(addCalls.length, 1, 'exactly one item add call')
   assert.ok(addCalls[0]!.includes('--type info'), 'posts --type info')
-  assert.equal(stdoutOut, '{"itemId":"note-1"}\n', 'prints exactly the itemId')
+  assert.deepEqual(
+    JSON.parse(stdoutOut),
+    {
+      itemId: 'note-1',
+      note:
+        'Nothing answers a note. If this asks the user to approve, merge, flip, proceed or validate ' +
+        `anything, withdraw it (dashboard item withdraw --item note-1 --session ${sessionId}) and ` +
+        'post it with --type approval.',
+    },
+    'prints the itemId and the reminder naming the withdraw command for this note'
+  )
+  assert.ok(stdoutOut.endsWith('}\n') && !stdoutOut.slice(0, -1).includes('\n'), 'one JSON line')
   assert.deepEqual(
     loadState(sessionId)!.openItemIds,
     ['q-1'],
     'the note id is not recorded and the open question is untouched'
   )
+  assert.equal(getRequestedExitCode(), 0, 'exit code is exactly success')
+})
+
+test('an approval post prints only the itemId — the note reminder is for --type info alone', () => {
+  process.env.AI_WORKFLOW_APP_BIN = writeStub(tmpDir, 0, '{"itemId":"appr-1"}')
+  const sessionId = process.env.CLAUDE_CODE_SESSION_ID!
+  registerRootNode(sessionId)
+  saveState(sessionId, { registered: true, phase: 'implementation', openItemIds: [] })
+
+  const stdoutOut = captureStdout(() => runItemAdd('approval', 'Merge PR #1?'))
+
+  assert.equal(stdoutOut, '{"itemId":"appr-1"}\n', 'prints exactly the itemId')
   assert.equal(getRequestedExitCode(), 0, 'exit code is exactly success')
 })
 
@@ -5271,7 +5294,7 @@ test('runItemAdd: references pass to the app as its own --answers/--replaces/--r
     ),
     `each reference reaches the app as its own flag, got: ${String(call)}`
   )
-  assert.equal(stdoutOut.trim(), JSON.stringify({ itemId: 'note-1' }))
+  assert.equal(JSON.parse(stdoutOut).itemId, 'note-1')
 })
 
 test('--defer keeps references on the queued entry, and flush-deferred posts them', () => {

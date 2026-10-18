@@ -86,6 +86,11 @@ Run that once per pair, and confirm each call succeeded before moving on. A pair
 
 ### 3. Remove Worktrees
 
+First stop any playtest still running from a worktree you are about to remove. `playtest list`
+prints every recorded playtest with its `dir`; for each one whose `dir` is the story worktree or
+inside it, or one of the `tmp/<TICKET-ID>-*` worktrees, run `playtest stop --name "<its name>"`.
+A playtest outlives its worktree otherwise, still holding its ports.
+
 ```bash
 git worktree list --porcelain
 git worktree remove "<path from the listing above>"

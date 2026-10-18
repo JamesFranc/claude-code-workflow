@@ -5,6 +5,7 @@ import { claudeUsageCommand } from './commands/claude-usage.ts'
 import { dashboardRoutes } from './commands/dashboard.ts'
 import { gateLedgerRoutes } from './commands/gate-ledger.ts'
 import { mailboxRoutes } from './commands/mailbox.ts'
+import { playtestRoutes } from './commands/playtest.ts'
 import { prMonitorCommand } from './commands/pr-monitor.ts'
 import { proofLedgerRoutes } from './commands/proof-ledger.ts'
 import { proseAdjacencyCommand } from './commands/prose-adjacency.ts'
@@ -28,6 +29,7 @@ const routes = buildRouteMap({
     dashboard: dashboardRoutes,
     'gate-ledger': gateLedgerRoutes,
     mailbox: mailboxRoutes,
+    playtest: playtestRoutes,
     'pr-monitor': prMonitorCommand,
     'proof-ledger': proofLedgerRoutes,
     'prose-adjacency': proseAdjacencyCommand,

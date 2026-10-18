@@ -102,13 +102,13 @@ const NO_BOARD_EXIT = 3
 // add: post a question/approval item and record its id so the wake check knows a wait is pending and
 // reconcile can clear it — or post an info note, whose id is never recorded: nothing answers a note,
 // and the wake check and the Stop hook's gate read a non-empty openItemIds as "an answer can
-// arrive" (dashboard-protocol.md §8). Prints {"itemId":…} on success; with no board it prints the
-// composed item and exits 3, to be asked in the terminal; every refusal below (corrupt state,
-// unconfirmed post) writes stderr and sets exit 1 instead. With a board and
-// --defer, queues the question on this node instead — nothing posts, and it prints {"deferredId":…};
-// `runItemFlushDeferred` posts the queue later. With no board, --defer is handed back like any
-// other question. Mutation verb — resolves strictly: fails loud on
-// sibling ambiguity (pass --key) rather than silently guessing.
+// arrive" (dashboard-protocol.md §8). Prints {"itemId":…} on success — a note adds a "note" field
+// (infoNoteReminder); with no board it prints the composed item and exits 3, to be asked in the
+// terminal; every refusal below (corrupt state, unconfirmed post) writes stderr and sets exit 1
+// instead. With a board and --defer, queues the question on this node instead — nothing posts, and
+// it prints {"deferredId":…}; `runItemFlushDeferred` posts the queue later. With no board, --defer
+// is handed back like any other question. Mutation verb — resolves strictly: fails loud on sibling
+// ambiguity (pass --key) rather than silently guessing.
 export const runItemAdd = (
   type: 'question' | 'approval' | 'info',
   prompt: string,
@@ -252,7 +252,9 @@ export const runItemAdd = (
         openItemIds,
       })
     }
-    process.stdout.write(JSON.stringify({ itemId }) + '\n')
+    const result =
+      type === 'info' ? { itemId, note: infoNoteReminder(itemId, sessionId) } : { itemId }
+    process.stdout.write(JSON.stringify(result) + '\n')
     return
   }
   // No usable id back means the post is unconfirmed, not failed — the board call above may well
@@ -644,6 +646,15 @@ const validateNotePrompt = (prompt: string): string | null => {
 
   return prompt
 }
+
+// What a note cannot do, returned beside every note's id (FLOW-427). A go-ahead posted as a note
+// never reaches "Needs me" and nothing answers it, and the agent that posted it reads the note as
+// the step done. The posting call is the one moment every such mistake shares, whichever step it
+// should have come from, so the reminder rides on its result, in the JSON line itself.
+const infoNoteReminder = (itemId: string, sessionId: string): string =>
+  'Nothing answers a note. If this asks the user to approve, merge, flip, proceed or validate ' +
+  `anything, withdraw it (dashboard item withdraw --item ${itemId} --session ${sessionId}) and ` +
+  'post it with --type approval.'
 
 // FLOW-211 guard — enforces skills/board/references/dashboard-protocol.md §3.1. Type-aware:
 // blocks only on an open QUESTION (`openItemCounts.question`, REV-72), never on another open

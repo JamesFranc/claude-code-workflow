@@ -24,11 +24,19 @@ A Claude Code workflow plugin: skills, hooks, agents, commands, and TypeScript C
   private content, a missing licence or notice, and excluded paths. It needs a `.private-terms.json`
   list of private terms, which is never published; without one it exits 2 (could not run). The
   source repository runs it on every pull request.
-- **Publish snapshot:** `pnpm publish-snapshot --to "<owner/repo>"`, run by the maintainer from a released commit
-  (the tip of `origin/main`, clean, tagged `claude-workflow-v<version>`). It runs the publish check, then replaces
-  the snapshot repo's tree with the export set as one `release: v<version>` commit and tag. It never changes the
-  snapshot repo's visibility. To check a snapshot clone, run `pnpm publish-check --repo "<clone>" --terms
-  "<source>/.private-terms.json"` from a source checkout, since the snapshot carries no terms file.
+- **Publish snapshot:** a release publishes itself. When release-please creates a release, the
+  `publish-snapshot` job in `.github/workflows/release-please.yml` runs
+  `pnpm publish-snapshot --to denormans/claude-code-workflow` on the released commit, pushing with the
+  `SNAPSHOT_DEPLOY_KEY` secret. Despite its name, it holds a fine-grained token, not a deploy key,
+  with Contents and Workflows read/write on that repository only. To publish by hand, for example
+  after the job failed on an expired token, run the same command from a released commit (the tip of
+  `origin/main`, clean, tagged `claude-workflow-v<version>`). A release whose job refused because
+  `main` moved cannot be published by hand either, since the tip is no longer the commit its tag
+  names: the snapshot catches up when the next release publishes. It runs the publish check, then
+  replaces the snapshot repo's tree with the export set as one `release: v<version>` commit and tag.
+  It never changes the snapshot repo's visibility. To check a snapshot clone, run
+  `pnpm publish-check --repo "<clone>" --terms "<source>/.private-terms.json"` from a source
+  checkout, since the snapshot carries no terms file.
 - **Test:** `pnpm test` — `tools/cli`'s suite is capped at 4 concurrent workers on hosts with 5 or
   more cores, and at Node's own `availableParallelism() - 1`, never below 1, on smaller ones.
   Several agent worktrees run this suite at once, and an inherited default means each one sizes

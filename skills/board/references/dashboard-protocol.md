@@ -504,7 +504,8 @@ An info note tells the user something worth keeping that needs nothing from them
 board as unread until they mark it read, it never puts the session under "Needs me", and nothing
 answers it — so nothing waits on it, and the agent that posted it never gets it back.
 
-`dashboard item add --type info --prompt "$(cat "<tmpfile>")"` → prints `{"itemId":"<id>"}`.
+`dashboard item add --type info --prompt "$(cat "<tmpfile>")"` → prints
+`{"itemId":"<id>","note":"<reminder>"}`.
 Round-trip the prompt through a private temp file, the same as a question (§2). The first line is
 the lede, capped at 200 characters, and the whole prompt is capped at 1500. There is no declaration
 line, and `--recommend`, `--stalls`, `--why-mine`, `--defer` and `--approval-kind` are refused. The
@@ -518,6 +519,16 @@ a call you made that the user would want to find later, a surprise in the codeba
 accepted. The bar: the user would want to know it later, it would otherwise live only in terminal
 scrollback, and it is not a progress update. The session's phase and the PR already show progress;
 a note that restates them is noise, and noise teaches the user to mark notes read unopened.
+
+**A note never stands in for an approval.** Anything that asks the user to approve, merge, flip,
+proceed or validate is an approval (`--type approval`), whatever surfaced the moment (a monitor
+event, your own watcher, a re-read of the PR) and whether or not the step that prescribes it is
+still in context. Posted as a note, it never reaches "Needs me" and nothing answers it, so the
+work waits unseen, and the note does not count as the step done: withdraw it
+(`dashboard item withdraw --item "<id>"`) and post the approval in its place. Every
+`--type info` post returns a `note` field beside `itemId` saying so, and pr-monitor's
+`CI_GREEN_ON_DRAFT` and `MERGE_READY` entries each carry a `→` line naming the PR Lifecycle handler
+to run, which ends in that approval (FLOW-427).
 
 **Three notes are prescribed, not judged.** The Renovate monitor's `all-done` session summary
 (`skills/renovate-prs/references/monitor-runbook.md`, `event = "all-done"`) is posted every time

@@ -3,7 +3,7 @@
 // but nothing that would come after it (another gh call, an event, a state write) ever runs.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { spawn } from 'node:child_process'
+import { spawn, type ChildProcess } from 'node:child_process'
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -45,6 +45,16 @@ const waitFor = async (predicate: () => boolean): Promise<void> => {
     await sleepMs(20)
   }
   assert.ok(predicate(), 'precondition: the awaited condition was reached in time')
+}
+
+// Polls until `done()` holds or the child exits, bounded by POLL_DEADLINE_MS. It never asserts:
+// whatever ends the wait — the condition, the child exiting for any reason, or the deadline —
+// falls through to the caller's own assertions.
+const waitUntilOrExit = async (child: ChildProcess, done: () => boolean): Promise<void> => {
+  const deadline = Date.now() + POLL_DEADLINE_MS
+  while (!done() && child.exitCode === null && child.signalCode === null && Date.now() < deadline) {
+    await sleepMs(20)
+  }
 }
 
 const readGhLogText = (ghLogPath: string): string =>
@@ -363,9 +373,12 @@ test('an incomplete search does not produce all-done though nothing else is pend
     })
     const exitPromise = new Promise<number | null>((resolve) => child.on('close', resolve))
 
-    // Several ticks past the merge — an all-done gate that ignored search incompleteness would
-    // have already fired and exited the process by now.
-    await sleepMs(4000)
+    // Wait for several ticks past the merge — an all-done gate that ignored search incompleteness
+    // would fire on the first of them and exit the process instead.
+    await waitUntilOrExit(
+      child,
+      () => (stdout.match(/\[tick\] search incomplete/g) ?? []).length >= 2
+    )
     if (child.exitCode === null && child.signalCode === null) {
       child.kill('SIGKILL')
     }
@@ -527,9 +540,12 @@ test('a search that fails outright does not produce all-done though nothing else
     })
     const exitPromise = new Promise<number | null>((resolve) => child.on('close', resolve))
 
-    // Several ticks past the merge — an all-done gate that ignored a fully-failed search would have
-    // already fired and exited the process by now.
-    await sleepMs(4000)
+    // Wait for several ticks past the merge — an all-done gate that ignored a fully-failed search
+    // would fire on the first of them and exit the process instead.
+    await waitUntilOrExit(
+      child,
+      () => (stderr.match(/\[tick\] gh search failed:/g) ?? []).length >= 2
+    )
     if (child.exitCode === null && child.signalCode === null) {
       child.kill('SIGKILL')
     }
@@ -600,9 +616,12 @@ test('a PR whose `gh pr view` keeps failing does not produce all-done though not
     })
     const exitPromise = new Promise<number | null>((resolve) => child.on('close', resolve))
 
-    // Several ticks past the merge — an all-done gate that ignored the PR's failed view would have
-    // already fired and exited the process by now.
-    await sleepMs(4000)
+    // Wait for several ticks past the merge — an all-done gate that ignored the PR's failed view
+    // would fire on the first of them and exit the process instead.
+    await waitUntilOrExit(
+      child,
+      () => (stdout.match(/gh pr view failed; skipping/g) ?? []).length >= 2
+    )
     if (child.exitCode === null && child.signalCode === null) {
       child.kill('SIGKILL')
     }

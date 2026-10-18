@@ -23,6 +23,12 @@ You're most likely running this because the session just restarted. With that in
 
 2. **Restart the background jobs you had running.** Look back over this session — the conversation, the process-improvement notes, open PRs — and relaunch whatever long-running background jobs were active before the restart. The usual ones:
    - **PR watch** — nothing to relaunch: a PR registered with `pr-monitor` is on disk, and the wake mod restarts with the session and polls it. **CodeRabbit throttle durability:** a cooloff re-request scheduled before the restart is lost with the session, and a still-present rate-limit banner is **not** re-emitted (the emission is transition-only, by design — that is also what keeps an ordinary restart from re-reporting). So for any open draft PR from this session, check the PR directly — `gh pr view "<n>" --repo "<owner/repo>" --json comments,reviews` — and if CodeRabbit's most recent status is a rate-limit banner or a refused re-request (`Action not completed` with `Review rate limited`) with no review after it, re-establish the pending re-request per the PR Lifecycle `CODERABBIT_RATE_LIMITED` handler (`workflow:pr-lifecycle`). Follow that handler rather than a summary of it: the cooloff, the choice between `review` and `full review`, the re-request and the recording of the comment's id are all steps it states, and a re-request posted without that last step wakes you on your own words.
+   - **Playtests** — nothing to relaunch: a playtest runs detached and survives the restart. Run
+     `playtest list`. Leave a live one alone while its flip-to-ready item is still open, and run
+     `playtest stop --name "<its name>"` for any whose item is gone. When one shows `alive: false`
+     and its item is still open, the link in the item is dead: re-run the `playtest start` the PR
+     Lifecycle skill prescribes (§Playtest Link), withdraw the item, and post a fresh one with the
+     new link and `--replaces "<id>"`.
    - **Anything else** you had launched in the background — other watchers, pollers, or `/loop`-style jobs. Relaunch a watcher with `timeout: 2147483647` (`skills/workflow-guide/references/background-watchers.md`).
 
    If you suspect a watcher is already live, check for the process before relaunching — do not start a second one to be safe.

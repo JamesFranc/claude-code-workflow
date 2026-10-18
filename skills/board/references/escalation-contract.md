@@ -202,7 +202,8 @@ not optional, and the part that makes the question answerable. A question with n
 the user would have to look at is the complaint this contract exists to fix.
 
 A "question" that needs no answer is not a question. If the user only needs to know it, post it as
-an info note instead (`skills/board/references/dashboard-protocol.md` §8).
+an info note instead (`skills/board/references/dashboard-protocol.md` §8). Something that needs the
+user's go-ahead is neither: it is an approval, never a note (same section).
 
 | Part | Where | What it is |
 |---|---|---|

@@ -744,6 +744,15 @@ test('CLI: item add --type approval --approval-kind hold posts despite an open q
   )
 })
 
+const infoPostStdout = (itemId: string, nodeId: string): string =>
+  JSON.stringify({
+    itemId,
+    note:
+      'Nothing answers a note. If this asks the user to approve, merge, flip, proceed or validate ' +
+      `anything, withdraw it (dashboard item withdraw --item ${itemId} --session ${nodeId}) and ` +
+      'post it with --type approval.',
+  }) + '\n'
+
 test('CLI: item add --type info posts the note and leaves openItemIds untouched', () => {
   registerRootNode(rawId)
   saveState(rawId, { registered: true, phase: 'implementation', openItemIds: ['q-1'] })
@@ -755,7 +764,7 @@ test('CLI: item add --type info posts the note and leaves openItemIds untouched'
   )
 
   assert.equal(status, 0, 'exits exactly 0')
-  assert.equal(stdout, '{"itemId":"note-cli-1"}\n', 'prints exactly the itemId')
+  assert.equal(stdout, infoPostStdout('note-cli-1', rawId), 'prints the itemId and the reminder')
   assert.equal(stderrBeyondNodeWarnings(stderr), '', 'nothing on stderr beyond Node warnings')
   assert.ok(
     readRawCalls(tmpDir).includes('--type info --prompt A note\n\nWith detail.'),
@@ -790,7 +799,7 @@ test('CLI: item add passes repeated --answers/--replaces/--related through to th
   )
 
   assert.equal(status, 0, 'exits exactly 0')
-  assert.equal(stdout, '{"itemId":"note-ref-1"}\n')
+  assert.equal(stdout, infoPostStdout('note-ref-1', rawId), 'prints the itemId and the reminder')
   assert.ok(
     readRawCalls(tmpDir).includes(
       '--type info --answers c1 --replaces w1 --related r1 --related r2 --prompt Done'
