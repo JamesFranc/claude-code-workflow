@@ -1,7 +1,7 @@
 import type { Alignment } from './tts.ts'
 
 // A walkthrough with no voice is read rather than heard (FLOW-423): its timing comes from a reading
-// pace instead of ElevenLabs' alignment, and its narration is shown as captions.
+// pace instead of a spoken alignment, and its narration is shown as captions.
 
 export interface Caption {
   text: string
@@ -24,8 +24,8 @@ interface Span {
   end: number
 }
 
-// An alignment in ElevenLabs' shape, one entry per code point, that reads `text` at READING_PACE
-// and pauses after each sentence.
+// An alignment in the shape a voice returns, one entry per code point, that reads `text` at
+// READING_PACE and pauses after each sentence.
 export const readingAlignment = (text: string): Alignment => {
   const characters = [...text]
   const starts: number[] = []

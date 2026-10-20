@@ -119,7 +119,9 @@ const cueTimes = (scene: PreparedScene, alignment: Alignment, index: number): nu
     const time =
       found === undefined ? undefined : alignment.character_start_times_seconds[found.start]
     if (found === undefined || time === undefined) {
-      throw new Error(`walkthrough: scene ${index}'s cue "${cue}" is not in ElevenLabs' alignment`)
+      throw new Error(
+        `walkthrough: scene ${index}'s cue "${cue}" is not in the narration's alignment`
+      )
     }
     from = found.end
     return time

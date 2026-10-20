@@ -1,11 +1,11 @@
 # Walkthrough Videos
 
 The Architecture skill gives each architecture doc a walkthrough video at the top of its hosted
-Notion page: narrated by ElevenLabs or a macOS voice when one is configured, and silent with the
-narration as subtitles when neither is. The video tells the story of the work in a few minutes, so
-the user can review the design by watching it. The skill writes the script after the doc and
-renders it before hosting. Whenever a revision changes what the video says, it re-renders before
-re-hosting.
+Notion page: narrated by Kokoro, ElevenLabs or a macOS voice when one is configured, and silent
+with the narration as subtitles when none is. The video tells the story of the work in a few
+minutes, so the user can review the design by watching it. The skill writes the script after the
+doc and renders it before hosting. Whenever a revision changes what the video says, it re-renders
+before re-hosting.
 
 ## Files
 
@@ -15,7 +15,7 @@ All of these sit beside the doc in `docs/plans/`. `<doc-basename>` is the doc's 
 | File | What it is |
 |---|---|
 | `<doc-basename>.walkthrough.json` | The script. You write it. |
-| `<doc-basename>.walkthrough.cache/` | Narration audio, cached by text and voice, and by the model and speed the CLI pins for ElevenLabs or by the scene's cues for a macOS voice. `walkthrough render` writes it; keep it between renders. |
+| `<doc-basename>.walkthrough.cache/` | Narration audio, cached by text, voice, and the speed the CLI pins, plus the ElevenLabs model it pins, the Kokoro package versions it pins (Kokoro's model is not pinned), or the scene's cues for a macOS voice. `walkthrough render` writes it; keep it between renders. |
 | `<doc-basename>.walkthrough.mp4` | The video. |
 
 The doc's first line under its title embeds the video: `![Walkthrough](<doc-basename>.walkthrough.mp4)`.
@@ -24,20 +24,27 @@ Hosting turns that line into a Notion video (`skills/workflow-guide/references/n
 
 ## Choosing the voice
 
-Run `check-tools --require elevenlabs,mac-voice` first. A `failed` result for either one: stop
-and print the reason. Otherwise the first configured voice narrates the video:
-- `elevenlabs` configured: ElevenLabs narrates it. `ELEVEN_LABS_VOICE_ID` overrides the voice the
-  CLI pins, per project.
-- else `mac-voice` configured: the macOS voice `WALKTHROUGH_MAC_VOICE` names narrates it, free and
-  local. The name is as `say -v '?'` lists it. Premium voices, downloaded under System Settings →
-  Accessibility → Read & Speak → System voice → Manage Voices… (Spoken Content before macOS 26),
-  sound far better than the built-in compact ones.
-- neither: `walkthrough render` makes the video without a voice: each scene lasts as long as
-  reading its narration takes, and the narration shows as subtitles. Tell the user in one line
-  that the walkthrough is silent and subtitled because no voice is configured.
+Run `check-tools --require kokoro,elevenlabs,mac-voice` first.
+- any `failed`: stop and print the reason. Any non-empty `WALKTHROUGH_VOICE` other than exactly
+  `kokoro` is a `failed` `kokoro`, not a missing one, and `walkthrough render` exits 1 on it.
+- `kokoro` `configured` (`WALKTHROUGH_VOICE=kokoro`): go on. Kokoro narrates locally through `uv`,
+  and neither ElevenLabs nor a macOS voice is used even when configured. The first run downloads
+  the model and a Python environment with PyTorch.
+- else `elevenlabs` `configured`: go on. ElevenLabs narrates.
+- else `mac-voice` `configured`: go on. The macOS voice `WALKTHROUGH_MAC_VOICE` names narrates it,
+  free and local. The name is as `say -v '?'` lists it. Premium voices, downloaded under System
+  Settings → Accessibility → Read & Speak → System voice → Manage Voices… (Spoken Content before
+  macOS 26), sound far better than the built-in compact ones.
+- none configured: go on. `walkthrough render` makes the video without a voice: each scene lasts as
+  long as reading its narration takes, and the narration shows as subtitles. Tell the user in one
+  line that the walkthrough is silent and subtitled because no voice is configured.
 
-With both configured, ElevenLabs wins and `walkthrough render` says on stderr that the macOS voice
-is ignored.
+Each voice defaults to the one the CLI pins: `KOKORO_VOICE` overrides Kokoro's, and
+`ELEVEN_LABS_VOICE_ID` overrides ElevenLabs'. `KOKORO_VOICE` must be an American or British English
+voice (prefix `a` or `b`); any other voice gives no word timings, and the render exits 1.
+
+With ElevenLabs and a macOS voice both configured, and Kokoro not selected, ElevenLabs wins and
+`walkthrough render` says on stderr that the macOS voice is ignored.
 
 ## Write the script
 
@@ -150,17 +157,18 @@ walkthrough render --script "docs/plans/<doc-basename>.walkthrough.json" --out "
   problems means fix the script and re-run.
 - Exit 2 means a tool it needs isn't usable:
   - `ffmpeg -version` doesn't run cleanly, whether `ffmpeg` is missing or broken;
-  - `ELEVEN_LABS_API_KEY` is unset, `WALKTHROUGH_MAC_VOICE` is set, and `say` or `ffprobe` doesn't
-    run cleanly, whether it is missing or broken (`say` is macOS-only);
+  - `ELEVEN_LABS_API_KEY` is unset, Kokoro is not selected, `WALKTHROUGH_MAC_VOICE` is set, and
+    `say` or `ffprobe` doesn't run cleanly, whether it is missing or broken (`say` is macOS-only);
   - `hyperframes browser ensure`, run through `npx`, doesn't exit 0. For example: `npx` is missing,
     the HyperFrames package can't be fetched, or no Chrome can be found or downloaded.
-- An ElevenLabs error exits 1 with its status. Stop and report ElevenLabs as broken, the same as
-  `check-tools`' `onFailure`. Scenes already voiced stay cached.
-- With `ELEVEN_LABS_API_KEY` unset, a `WALKTHROUGH_MAC_VOICE` naming a voice that isn't installed
-  exits 1 before anything renders.
-  Stop and report it, the same as `check-tools`' `onFailure` for `mac-voice`.
+- A voice error exits 1: ElevenLabs with its status, Kokoro with its exit. Stop and report that
+  voice as broken, the same as `check-tools`' `onFailure`. Scenes already voiced stay cached. With
+  Kokoro selected, a missing `uv` exits 2 like any other missing tool.
+- With neither Kokoro selected nor `ELEVEN_LABS_API_KEY` set, a `WALKTHROUGH_MAC_VOICE` naming a
+  voice that isn't installed exits 1 before anything renders. Stop and report it, the same as
+  `check-tools`' `onFailure` for `mac-voice`.
 - stdout is a JSON summary. `narrated: false` means the video was rendered silent, with subtitles.
-  `voice` says which voice narrated it: `elevenlabs`, `mac`, or `null`.
+  `voice` says which voice narrated it: `elevenlabs`, `kokoro`, `mac`, or `null`.
   `overNotionLimit: true` means the video is over 20 MiB and won't upload.
   Host the doc without the video and tell the user.
 

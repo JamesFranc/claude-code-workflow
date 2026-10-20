@@ -11,7 +11,7 @@ export interface PreparedScene extends Scene {
   diagram?: RenderedDiagram
 }
 
-// Checks everything about a script that can be checked without spending ElevenLabs characters, and
+// Checks everything about a script that can be checked without voicing any narration, and
 // compiles its diagrams. Throws a ScriptError listing every problem it found.
 export const prepareScript = async (script: WalkthroughScript): Promise<PreparedScene[]> => {
   const problems: string[] = []

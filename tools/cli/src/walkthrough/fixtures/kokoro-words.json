@@ -1,0 +1,135 @@
+{
+  "narration": "PRISM-242 ships v1.2 of the API: 3 workers call gateway.hub/route in 40 ms. It’s “fast” 🚀 — then Postgres stores it.",
+  "words": [
+    {
+      "text": "PRISM-242",
+      "start": 0.225,
+      "end": 1.5375
+    },
+    {
+      "text": "ships",
+      "start": 1.5375,
+      "end": 1.825
+    },
+    {
+      "text": "v1.2",
+      "start": 1.825,
+      "end": 2.5
+    },
+    {
+      "text": "of",
+      "start": 2.5,
+      "end": 2.5875
+    },
+    {
+      "text": "the",
+      "start": 2.5875,
+      "end": 2.7
+    },
+    {
+      "text": "API",
+      "start": 2.7,
+      "end": 3.55
+    },
+    {
+      "text": ":",
+      "start": 3.55,
+      "end": 3.7
+    },
+    {
+      "text": "3",
+      "start": 3.7,
+      "end": 3.975
+    },
+    {
+      "text": "workers",
+      "start": 3.975,
+      "end": 4.375
+    },
+    {
+      "text": "call",
+      "start": 4.375,
+      "end": 4.625
+    },
+    {
+      "text": "gateway.hub/route",
+      "start": 4.625,
+      "end": 5.55
+    },
+    {
+      "text": "in",
+      "start": 5.55,
+      "end": 5.7125
+    },
+    {
+      "text": "40",
+      "start": 5.7125,
+      "end": 6.05
+    },
+    {
+      "text": "ms",
+      "start": 6.05,
+      "end": 6.85
+    },
+    {
+      "text": ".",
+      "start": 6.85,
+      "end": 6.975
+    },
+    {
+      "text": "It’s",
+      "start": 6.975,
+      "end": 7.225
+    },
+    {
+      "text": "“",
+      "start": 7.225,
+      "end": 7.3
+    },
+    {
+      "text": "fast",
+      "start": 7.3,
+      "end": 7.75
+    },
+    {
+      "text": "”",
+      "start": 7.75,
+      "end": 7.825
+    },
+    {
+      "text": "🚀",
+      "start": 7.825,
+      "end": 8.45
+    },
+    {
+      "text": "—",
+      "start": 8.45,
+      "end": 8.5125
+    },
+    {
+      "text": "then",
+      "start": 8.5125,
+      "end": 8.7
+    },
+    {
+      "text": "Postgres",
+      "start": 8.7,
+      "end": 9.225
+    },
+    {
+      "text": "stores",
+      "start": 9.225,
+      "end": 9.55
+    },
+    {
+      "text": "it",
+      "start": 9.55,
+      "end": 9.95
+    },
+    {
+      "text": ".",
+      "start": 9.95,
+      "end": 10.075
+    }
+  ]
+}

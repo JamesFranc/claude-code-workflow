@@ -6,6 +6,7 @@ export type ToolSpec = {
   readonly onFailure: string
   readonly requiresAll?: readonly string[]
   readonly acceptsAnyPrefix?: readonly string[]
+  readonly envProblem?: (env: NodeJS.ProcessEnv) => string | undefined
 }
 
 export type EnvSummary = {

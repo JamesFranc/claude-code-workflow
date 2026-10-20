@@ -58,8 +58,9 @@ None of these is required. Each one changes what the workflow does when it is pr
 |---|---|---|
 | Jira (an Atlassian MCP server, plus any `JIRA_*` or `ATLASSIAN_*` variable) | Work is tracked on a ticket, and branches are named after it | No ticket; branches are named from a short description |
 | Notion (a Notion MCP server, plus `NOTION_PAGE_URL`) | Design docs are published to Notion | Design docs stay as local files |
-| ElevenLabs (`ELEVEN_LABS_API_KEY`) | Each architecture doc's walkthrough video is narrated | The video is silent, with the narration as subtitles |
-| A macOS voice (`WALKTHROUGH_MAC_VOICE`) | The walkthrough video is narrated by that voice, when ElevenLabs isn't configured | With `ELEVEN_LABS_API_KEY` also unset, the video is silent, with the narration as subtitles |
+| ElevenLabs (`ELEVEN_LABS_API_KEY`) | Each architecture doc's walkthrough video is narrated | A macOS voice narrates when set, else the video is silent, with the narration as subtitles |
+| Kokoro (`WALKTHROUGH_VOICE=kokoro`, needs `uv`) | Each architecture doc's walkthrough video is narrated locally, and takes precedence over ElevenLabs and a macOS voice | ElevenLabs narrates when configured, else a macOS voice, else the video is silent, with the narration as subtitles |
+| A macOS voice (`WALKTHROUGH_MAC_VOICE`) | The walkthrough video is narrated by that voice, when neither Kokoro nor ElevenLabs is configured | With `ELEVEN_LABS_API_KEY` also unset, the video is silent, with the narration as subtitles |
 | The board (`ai-workflow-app`) | Questions and approvals go to the board | The workflow asks in the terminal |
 | CodeRabbit | Its review is part of the pull request loop | Only the agent review runs |
 
@@ -92,7 +93,9 @@ These are Claude Code's own settings. The workflow depends on what they do.
 | `NOTION_PAGE_URL` | The Notion page design docs are published under. Unset: design docs stay as local files. |
 | `ELEVEN_LABS_API_KEY` | ElevenLabs API key used to narrate an architecture doc's walkthrough video. Unset: a macOS voice narrates it if `WALKTHROUGH_MAC_VOICE` is set; otherwise the video is silent, with the narration as subtitles. |
 | `ELEVEN_LABS_VOICE_ID` | The ElevenLabs voice for that narration. Default: the voice the CLI pins. |
-| `WALKTHROUGH_MAC_VOICE` | A macOS voice, named as `say -v '?'` lists it, that narrates the walkthrough video when `ELEVEN_LABS_API_KEY` is unset. Unset (and `ELEVEN_LABS_API_KEY` unset too): the video is silent, with the narration as subtitles. Premium voices (System Settings → Accessibility → Read & Speak → System voice → Manage Voices…; Spoken Content before macOS 26) sound far better than the built-in ones. |
+| `WALKTHROUGH_VOICE` | `kokoro` narrates walkthrough videos locally with Kokoro through `uv`, ahead of ElevenLabs and a macOS voice. Any other non-empty value fails the render. Unset: ElevenLabs when its key is set, else a macOS voice when `WALKTHROUGH_MAC_VOICE` is set, else silent. |
+| `KOKORO_VOICE` | The Kokoro voice for that narration. It must be an American or British English voice (prefix `a` or `b`). Default: `af_heart`. |
+| `WALKTHROUGH_MAC_VOICE` | A macOS voice, named as `say -v '?'` lists it, that narrates the walkthrough video when `ELEVEN_LABS_API_KEY` is unset and Kokoro is not selected. Unset (and `ELEVEN_LABS_API_KEY` unset too): the video is silent, with the narration as subtitles. Premium voices (System Settings → Accessibility → Read & Speak → System voice → Manage Voices…; Spoken Content before macOS 26) sound far better than the built-in ones. |
 | `AI_WORKFLOW_APP_BIN` | Path to the board's `ai-workflow-app` binary. Default: `ai-workflow-app` found on `PATH`. If the path you give does not exist, the board is treated as absent; `PATH` is not searched instead. |
 | `PERMISSION_HOLD_DEADLINE_S` | When a tool call needs permission, the prompt is also posted to the board, and whichever answer comes first wins. This is how many seconds the board side waits. Default: `570`. A value that is not a whole number below `600` uses the default. |
 | `PERMISSION_POLL_INTERVAL_S` | Seconds between checks for the board's answer to that prompt. Default: `3`. |

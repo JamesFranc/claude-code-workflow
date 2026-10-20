@@ -17,13 +17,18 @@ export const runCheckTools = (tools: readonly string[]): void => {
   return
 }
 
-const classifyTool = (tool: string, env: NodeJS.ProcessEnv): ToolResult => {
+export const classifyTool = (tool: string, env: NodeJS.ProcessEnv): ToolResult => {
   const spec = TOOL_SPECS[tool]
   if (!spec) return unknownTool(tool)
 
   const present = findPresentEnv(spec, env)
   const missing = findMissingEnv(spec, env)
   const accepted = acceptedEnv(spec)
+
+  const problem = spec.envProblem?.(env)
+  if (problem !== undefined) {
+    return result(spec, 'failed', present, missing, accepted, problem)
+  }
 
   if (missing.length > 0 && present.length > 0) {
     return result(

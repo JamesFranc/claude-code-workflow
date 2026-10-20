@@ -1,3 +1,4 @@
+import { unknownEngineProblem } from '../walkthrough/kokoro.ts'
 import type { ToolSpec } from './types.ts'
 
 export const TOOL_SPECS: Readonly<Record<string, ToolSpec>> = {
@@ -21,6 +22,14 @@ export const TOOL_SPECS: Readonly<Record<string, ToolSpec>> = {
     onFailure:
       'STOP and tell the user ElevenLabs is configured but walkthrough render cannot voice the narration. Do NOT fall back.',
     requiresAll: ['ELEVEN_LABS_API_KEY'],
+  },
+  kokoro: {
+    tool: 'kokoro',
+    use: 'Local Kokoro narration for walkthrough videos',
+    onFailure:
+      'STOP and tell the user walkthrough render cannot voice the narration, with the reason given. Do NOT fall back.',
+    requiresAll: ['WALKTHROUGH_VOICE'],
+    envProblem: (env) => unknownEngineProblem(env.WALKTHROUGH_VOICE),
   },
   'mac-voice': {
     tool: 'mac-voice',

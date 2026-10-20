@@ -66,7 +66,7 @@ test('timeScenes: refuses a cue the spoken alignment does not contain', () => {
   assert.throws(
     () =>
       timeScenes([bullets], [{ audio: 'a.mp3', alignment: alignmentOf('First one. Later two.') }]),
-    /cue "Then" is not in ElevenLabs' alignment/
+    /cue "Then" is not in the narration's alignment/
   )
 })
 
