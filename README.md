@@ -64,6 +64,8 @@ None of these is required. Each one changes what the workflow does when it is pr
 | The board (`ai-workflow-app`) | Questions and approvals go to the board | The workflow asks in the terminal |
 | CodeRabbit | Its review is part of the pull request loop | Only the agent review runs |
 
+To use Kokoro, install [`uv`](https://docs.astral.sh/uv/) (`brew install uv` on macOS) and set `WALKTHROUGH_VOICE` to `kokoro` in the `env` block of a settings file (see [Environment variables](#environment-variables)). The first narrated render downloads Python 3.12, PyTorch and the Kokoro model, so it needs network access and takes longer than later renders, which reuse that download.
+
 The board is a separate application and is not published. Every variable the plugin reads is listed
 under [Environment variables](#environment-variables) below.
 
