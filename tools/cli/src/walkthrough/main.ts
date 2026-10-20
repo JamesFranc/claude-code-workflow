@@ -13,25 +13,23 @@ import { tmpdir } from 'node:os'
 import { basename, dirname, extname, join } from 'node:path'
 import { setRequestedExitCode } from '../runtime-exit-code.ts'
 import { composeHtml, timeScenes } from './compose.ts'
-import { MacVoiceError, macVoiceProblem, narrateWithMacVoice } from './mac-voice.ts'
 import { prepareScript, type PreparedScene } from './prepare.ts'
 import { ScriptError, parseScript, type WalkthroughScript } from './script.ts'
 import { readingAlignment } from './silent.ts'
 import {
-  DEFAULT_KOKORO_VOICE,
-  KOKORO_ENGINE,
-  narrateWithKokoro,
-  unknownEngineProblem,
-} from './kokoro.ts'
-import { DEFAULT_VOICE_ID, TtsError, narrate, type Alignment, type Narration } from './tts.ts'
-
-type Voice = 'elevenlabs' | 'kokoro' | 'mac'
+  VoiceError,
+  type Alignment,
+  type Narration,
+  type Narrator,
+  type VoiceName,
+} from './voice.ts'
+import { selectVoice } from './voices.ts'
 
 interface WalkthroughOutput {
   output: string
   narrated: boolean
   // Which voice narrated the walkthrough, or null when it is silent.
-  voice: Voice | null
+  voice: VoiceName | null
   durationSeconds: number
   bytes: number
   scenes: number
@@ -63,11 +61,9 @@ const AUDIO_ENCODING = ['-c:a', 'aac', '-b:a', '64k', '-ac', '1']
 // The index goes at the front, so the video starts playing before it has fully downloaded.
 const CONTAINER_FLAGS = ['-movflags', '+faststart']
 
-// Renders a walkthrough script to an MP4 (FLOW-390 architecture doc, "walkthrough"): narrated by
-// Kokoro when WALKTHROUGH_VOICE names it, else by ElevenLabs when ELEVEN_LABS_API_KEY is set, else
-// by the macOS voice WALKTHROUGH_MAC_VOICE names (FLOW-432), else silent with the narration as
-// subtitles (FLOW-423). Everything that can be checked without voicing anything is checked before
-// the first narration.
+// Renders a walkthrough script to an MP4 (FLOW-390 architecture doc, "walkthrough"): narrated when
+// a voice is selected (FLOW-432), otherwise silent with the narration as subtitles (FLOW-423).
+// Everything that can be checked without voicing anything is checked before the first narration.
 export const runWalkthroughRender = async (
   scriptFile: string,
   outFile: string,
@@ -75,27 +71,17 @@ export const runWalkthroughRender = async (
 ): Promise<void> => {
   const env = options.env ?? process.env
   const stdout = options.stdout ?? ((chunk: string) => void process.stdout.write(chunk))
-  const engineProblem = unknownEngineProblem(env.WALKTHROUGH_VOICE)
-  if (engineProblem !== undefined) {
-    console.error(`walkthrough: ${engineProblem}`)
+  const selection = selectVoice(env)
+  if (selection.problem !== undefined) {
+    console.error(`walkthrough: ${selection.problem}`)
     setRequestedExitCode(1)
     return
   }
-  const selected = selectNarrator(env, options.apiBase)
-  const voice = selected?.voice
-  const narrated = selected !== undefined
-  if (voice === 'elevenlabs' && env.WALKTHROUGH_MAC_VOICE) {
-    console.error(
-      'walkthrough: ELEVEN_LABS_API_KEY is set, so ElevenLabs voices the walkthrough and ' +
-        'WALKTHROUGH_MAC_VOICE is ignored.'
-    )
-  }
-  if (!narrated) {
-    console.error(
-      'walkthrough: none of WALKTHROUGH_VOICE=kokoro, ELEVEN_LABS_API_KEY or ' +
-        'WALKTHROUGH_MAC_VOICE is set, so the ' +
-        'walkthrough is rendered without a voice, with the narration as subtitles.'
-    )
+  const { voice } = selection
+  const narrator = voice?.narrator(env, { apiBase: options.apiBase })
+  const narrated = narrator !== undefined
+  if (selection.notice !== undefined) {
+    console.error(`walkthrough: ${selection.notice}`)
   }
   const ffmpegProblem = probeFfmpeg()
   if (ffmpegProblem !== undefined) {
@@ -103,10 +89,10 @@ export const runWalkthroughRender = async (
     setRequestedExitCode(MISSING_TOOL_EXIT)
     return
   }
-  const problem = selected?.preflight()
-  if (problem !== undefined) {
-    console.error(problem.message)
-    setRequestedExitCode(problem.exitCode)
+  const preflightProblem = voice?.preflight(env)
+  if (preflightProblem !== undefined) {
+    console.error(preflightProblem.message)
+    setRequestedExitCode(preflightProblem.exitCode)
     return
   }
 
@@ -123,8 +109,7 @@ export const runWalkthroughRender = async (
     return
   }
 
-  const narrations =
-    selected === undefined ? [] : await narrateScenes(scenes, scriptFile, selected.narrator)
+  const narrations = narrator === undefined ? [] : await narrateScenes(scenes, scriptFile, narrator)
   if (narrations === undefined) {
     setRequestedExitCode(1)
     return
@@ -178,18 +163,17 @@ export const runWalkthroughRender = async (
     const output: WalkthroughOutput = {
       output: outFile,
       narrated,
-      voice: voice ?? null,
+      voice: voice?.name ?? null,
       durationSeconds: timed.reduce((sum, { duration }) => sum + duration, 0),
       bytes,
       scenes: scenes.length,
       synthesizedScenes: narrations.filter(({ cached }) => !cached).length,
       cachedScenes: narrations.filter(({ cached }) => cached).length,
-      ttsCharacters:
-        voice === 'elevenlabs'
-          ? scenes
-              .filter((_, i) => narrations[i]?.cached === false)
-              .reduce((sum, { narration }) => sum + narration.length, 0)
-          : 0,
+      ttsCharacters: voice?.chargedPerCharacter
+        ? scenes
+            .filter((_, i) => narrations[i]?.cached === false)
+            .reduce((sum, { narration }) => sum + narration.length, 0)
+        : 0,
       overNotionLimit: bytes > NOTION_UPLOAD_LIMIT,
     }
     stdout(JSON.stringify(output) + '\n')
@@ -234,69 +218,13 @@ const narrateScenes = async (
     }
     return narrations
   } catch (err) {
-    if (!(err instanceof TtsError || err instanceof MacVoiceError)) {
+    if (!(err instanceof VoiceError)) {
       throw err
     }
     console.error(`${scriptFile}: ${err.message}`)
     return undefined
   }
 }
-
-type Narrator = (text: string, cues: string[], cacheDir: string) => Promise<Narration>
-
-interface SelectedNarrator {
-  voice: Voice
-  narrator: Narrator
-  // Why a tool the voice needs cannot run, with the exit code to stop on.
-  preflight(): { message: string; exitCode: number } | undefined
-}
-
-// The voice that narrates, or undefined when none is selected.
-const selectNarrator = (
-  env: NodeJS.ProcessEnv,
-  apiBase: string | undefined
-): SelectedNarrator | undefined => {
-  const apiKey = env.ELEVEN_LABS_API_KEY || undefined
-  const macVoice = env.WALKTHROUGH_MAC_VOICE || undefined
-
-  if (env.WALKTHROUGH_VOICE === KOKORO_ENGINE) {
-    const voice = env.KOKORO_VOICE || DEFAULT_KOKORO_VOICE
-    return {
-      voice: 'kokoro',
-      narrator: async (text, _cues, cacheDir) => narrateWithKokoro(text, { voice, cacheDir }),
-      preflight: () =>
-        uvRuns()
-          ? undefined
-          : {
-              message:
-                'walkthrough: WALKTHROUGH_VOICE=kokoro needs uv on PATH; install it (brew install uv).',
-              exitCode: MISSING_TOOL_EXIT,
-            },
-    }
-  }
-
-  if (apiKey !== undefined) {
-    const voiceId = env.ELEVEN_LABS_VOICE_ID || DEFAULT_VOICE_ID
-    return {
-      voice: 'elevenlabs',
-      narrator: (text, _cues, cacheDir) => narrate(text, { apiKey, voiceId, cacheDir, apiBase }),
-      preflight: () => undefined,
-    }
-  }
-
-  if (macVoice !== undefined) {
-    return {
-      voice: 'mac',
-      narrator: async (text, cues, cacheDir) =>
-        narrateWithMacVoice(text, cues, { voice: macVoice, cacheDir }),
-      preflight: () => macVoiceProblem(macVoice),
-    }
-  }
-
-  return undefined
-}
-
-const uvRuns = (): boolean => spawnSync('uv', ['--version'], { stdio: 'ignore' }).status === 0
 
 // Copies each scene's audio into the composition, beside its alignment, keeping its format.
 const copyNarrations = (

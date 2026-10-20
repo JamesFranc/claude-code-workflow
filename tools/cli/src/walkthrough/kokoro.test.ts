@@ -1,10 +1,18 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { chmodSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
+import {
+  chmodSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { narrateWithKokoro, wordAlignment, type SpokenWord } from './kokoro.ts'
-import { TtsError } from './tts.ts'
+import { VoiceError } from './voice.ts'
 
 const close = (actual: number | undefined, expected: number) =>
   assert.ok(
@@ -154,17 +162,17 @@ test('narrateWithKokoro: speaks once with the text on stdin, then serves the sam
   })
 })
 
-test('narrateWithKokoro: a failed Kokoro run throws a TtsError and caches nothing', () => {
+test('narrateWithKokoro: a failed Kokoro run throws a VoiceError and caches nothing', () => {
   withStubs('[]', 3, (_, cacheDir) => {
     assert.throws(
       () => narrateWithKokoro('Hi', { voice: 'af_heart', cacheDir }),
-      new TtsError('Kokoro failed to voice the narration (exit 3)')
+      new VoiceError('Kokoro failed to voice the narration (exit 3)')
     )
     assert.deepEqual(readdirSync(join(cacheDir, '..')).includes('cache'), false)
   })
 })
 
-test('narrateWithKokoro: word timings that are not JSON, or not words, throw a TtsError and cache nothing', () => {
+test('narrateWithKokoro: word timings that are not JSON, or not words, throw a VoiceError and cache nothing', () => {
   for (const [words, message] of [
     ['[{"text":', 'Kokoro wrote word timings that are not JSON'],
     ['[{"text":"Hi"}]', 'Kokoro wrote word timings that are not a list of {text, start, end}'],
@@ -172,22 +180,41 @@ test('narrateWithKokoro: word timings that are not JSON, or not words, throw a T
     withStubs(words, 0, (_, cacheDir) => {
       assert.throws(
         () => narrateWithKokoro('Hi', { voice: 'af_heart', cacheDir }),
-        new TtsError(message)
+        new VoiceError(message)
       )
       assert.deepEqual(readdirSync(join(cacheDir, '..')).includes('cache'), false)
     })
   }
 })
 
-test('narrateWithKokoro: a run that returns no word timings throws a TtsError naming the voice and caches nothing', () => {
+test('narrateWithKokoro: a run that returns no word timings throws a VoiceError naming the voice and caches nothing', () => {
   withStubs('[]', 0, (_, cacheDir) => {
     assert.throws(
       () => narrateWithKokoro('Hola', { voice: 'ef_dora', cacheDir }),
-      new TtsError(
+      new VoiceError(
         'Kokoro voice "ef_dora" returned no word timings; only American or British English ' +
           'voices (prefix a or b) give word timings'
       )
     )
     assert.deepEqual(readdirSync(join(cacheDir, '..')).includes('cache'), false)
+  })
+})
+
+test('narrateWithKokoro: the cache entry for a fixed voice and text keeps its key', () => {
+  withStubs('[]', 1, (dir, cacheDir) => {
+    const key = '249046a08674ddd23313bdaaf8eafcec267a32cb6b7a33c2f2b8b096854f6b81'
+    const seeded = {
+      characters: ['H', 'i'],
+      character_start_times_seconds: [0, 0.1],
+      character_end_times_seconds: [0.1, 0.2],
+    }
+    mkdirSync(cacheDir)
+    writeFileSync(join(cacheDir, `${key}.mp3`), 'seeded')
+    writeFileSync(join(cacheDir, `${key}.json`), JSON.stringify({ alignment: seeded }))
+    const result = narrateWithKokoro('Hi', { voice: 'af_heart', cacheDir })
+    assert.equal(result.cached, true)
+    assert.equal(result.audioFile, join(cacheDir, `${key}.mp3`))
+    assert.deepEqual(result.alignment, seeded)
+    assert.equal(calls(dir), 0)
   })
 })

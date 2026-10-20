@@ -7,6 +7,10 @@ export type ToolSpec = {
   readonly requiresAll?: readonly string[]
   readonly acceptsAnyPrefix?: readonly string[]
   readonly envProblem?: (env: NodeJS.ProcessEnv) => string | undefined
+  // Replaces env presence in deciding configured or unconfigured.
+  readonly inUse?: (env: NodeJS.ProcessEnv) => boolean
+  // Why the tool is unconfigured when `inUse` says no, if env presence does not say it.
+  readonly unusedReason?: (env: NodeJS.ProcessEnv) => string | undefined
 }
 
 export type EnvSummary = {

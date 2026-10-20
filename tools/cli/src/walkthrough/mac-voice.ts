@@ -3,7 +3,14 @@ import { createHash } from 'node:crypto'
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { readCached, type Alignment, type Narration } from './tts.ts'
+import {
+  VoiceError,
+  readCached,
+  type Alignment,
+  type Narration,
+  type Voice,
+  type VoiceProblem,
+} from './voice.ts'
 
 // Narration with a macOS voice (FLOW-432). `say` reports no timings, so each cue's time is how long
 // the voice takes to say the narration up to it, and the characters between two such points are
@@ -21,19 +28,14 @@ export interface CuePoint {
   at: number
 }
 
-export interface MacVoiceProblem {
-  message: string
-  exitCode: number
-}
-
-export class MacVoiceError extends Error {}
+export class MacVoiceError extends VoiceError {}
 
 const MISSING_TOOL_EXIT = 2
 const AAC = ['--file-format=m4af', '--data-format=aac']
 
 // Why the voice cannot be used, or undefined when it can. Checked before any work, because `say`
 // given a voice it does not have speaks with the system voice instead and exits 0.
-export const macVoiceProblem = (voice: string): MacVoiceProblem | undefined => {
+export const macVoiceProblem = (voice: string): VoiceProblem | undefined => {
   const listing = spawnSync('say', ['-v', '?'], {
     encoding: 'utf8',
     stdio: ['ignore', 'pipe', 'ignore'],
@@ -229,4 +231,16 @@ const failureOf = (command: string, result: SpawnSyncReturns<unknown>): string |
   }
 
   return undefined
+}
+
+export const mac: Voice = {
+  name: 'mac',
+  chargedPerCharacter: false,
+  envProblem: (env) =>
+    env.WALKTHROUGH_MAC_VOICE?.trim() ? undefined : 'WALKTHROUGH_MAC_VOICE is not set',
+  preflight: (env) => macVoiceProblem(env.WALKTHROUGH_MAC_VOICE ?? ''),
+  narrator: (env) => {
+    const voice = env.WALKTHROUGH_MAC_VOICE ?? ''
+    return async (text, cues, cacheDir) => narrateWithMacVoice(text, cues, { voice, cacheDir })
+  },
 }

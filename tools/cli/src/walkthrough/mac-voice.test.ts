@@ -100,6 +100,38 @@ test('narrateWithMacVoice times each cue by its prefix and caches', () => {
   }
 })
 
+test('narrateWithMacVoice: the cache entry for a fixed voice, text and cues keeps its key', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mac-voice-test-'))
+  const savedPath = process.env.PATH
+  try {
+    const bin = join(dir, 'bin')
+    stubs(bin, dir, true)
+    process.env.PATH = `${bin}:${savedPath}`
+    const cacheDir = join(dir, 'cache')
+    const key = '665188ac7884b0cb6acd91e4b062ee820acfcba1ac74b34676a7fa90e977325b'
+    const seeded = {
+      characters: ['H', 'i'],
+      character_start_times_seconds: [0, 0.5],
+      character_end_times_seconds: [0.5, 1],
+    }
+    mkdirSync(cacheDir)
+    writeFileSync(join(cacheDir, `${key}.m4a`), 'seeded')
+    writeFileSync(join(cacheDir, `${key}.json`), JSON.stringify({ alignment: seeded }))
+
+    const result = narrateWithMacVoice('Hello. The client calls.', ['The client'], {
+      voice: 'Tester',
+      cacheDir,
+    })
+    assert.equal(result.cached, true)
+    assert.equal(result.audioFile, join(cacheDir, `${key}.m4a`))
+    assert.deepEqual(result.alignment, seeded)
+    assert.throws(() => readFileSync(join(dir, 'say-calls')), { code: 'ENOENT' })
+  } finally {
+    process.env.PATH = savedPath
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
 test('narrateWithMacVoice reports a say or ffprobe that cannot be run as a MacVoiceError', () => {
   const dir = mkdtempSync(join(tmpdir(), 'mac-voice-test-'))
   const savedPath = process.env.PATH

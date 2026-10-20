@@ -24,17 +24,24 @@ Hosting turns that line into a Notion video (`skills/workflow-guide/references/n
 
 ## Choosing the voice
 
-Run `check-tools --require kokoro,elevenlabs,mac-voice` first.
-- any `failed`: stop and print the reason. Any non-empty `WALKTHROUGH_VOICE` other than exactly
-  `kokoro` is a `failed` `kokoro`, not a missing one, and `walkthrough render` exits 1 on it.
+Run `check-tools --require elevenlabs,kokoro,mac-voice` first. Only the voice that narrates reads
+`configured`: `WALKTHROUGH_VOICE` names it (`elevenlabs`, `kokoro` or `mac`), and when it is unset or
+empty, ElevenLabs narrates if `ELEVEN_LABS_API_KEY` is set, else the macOS voice if
+`WALKTHROUGH_MAC_VOICE` is set.
+- any `failed`: stop and print the reason. A non-empty `WALKTHROUGH_VOICE` that names no voice fails
+  all three tools; `WALKTHROUGH_VOICE=elevenlabs` without `ELEVEN_LABS_API_KEY` fails `elevenlabs`
+  and `WALKTHROUGH_VOICE=mac` without `WALKTHROUGH_MAC_VOICE` fails `mac-voice`, not a missing one;
+  `walkthrough render` exits 1 on each.
 - `kokoro` `configured` (`WALKTHROUGH_VOICE=kokoro`): go on. Kokoro narrates locally through `uv`,
   and neither ElevenLabs nor a macOS voice is used even when configured. The first run downloads
   the model and a Python environment with PyTorch.
-- else `elevenlabs` `configured`: go on. ElevenLabs narrates.
-- else `mac-voice` `configured`: go on. The macOS voice `WALKTHROUGH_MAC_VOICE` names narrates it,
-  free and local. The name is as `say -v '?'` lists it. Premium voices, downloaded under System
-  Settings → Accessibility → Read & Speak → System voice → Manage Voices… (Spoken Content before
-  macOS 26), sound far better than the built-in compact ones.
+- `elevenlabs` `configured`: go on. ElevenLabs narrates. With `WALKTHROUGH_VOICE` unset or empty and
+  `WALKTHROUGH_MAC_VOICE` set too, ElevenLabs wins and `walkthrough render` says on stderr that the
+  macOS voice is ignored.
+- `mac-voice` `configured`: go on. The macOS voice `WALKTHROUGH_MAC_VOICE` names narrates it, free
+  and local. The name is as `say -v '?'` lists it. Premium voices, downloaded under System Settings
+  → Accessibility → Read & Speak → System voice → Manage Voices… (Spoken Content before macOS 26),
+  sound far better than the built-in compact ones.
 - none configured: go on. `walkthrough render` makes the video without a voice: each scene lasts as
   long as reading its narration takes, and the narration shows as subtitles. Tell the user in one
   line that the walkthrough is silent and subtitled because no voice is configured.
@@ -43,8 +50,24 @@ Each voice defaults to the one the CLI pins: `KOKORO_VOICE` overrides Kokoro's, 
 `ELEVEN_LABS_VOICE_ID` overrides ElevenLabs'. `KOKORO_VOICE` must be an American or British English
 voice (prefix `a` or `b`); any other voice gives no word timings, and the render exits 1.
 
-With ElevenLabs and a macOS voice both configured, and Kokoro not selected, ElevenLabs wins and
-`walkthrough render` says on stderr that the macOS voice is ignored.
+### Adding a voice
+
+- Add its name to the `VoiceName` union in `tools/cli/src/walkthrough/voice.ts`.
+- Implement `Voice` in its own module under `tools/cli/src/walkthrough/`, saying in
+  `chargedPerCharacter` whether it charges for each character it voices.
+- List it in `VOICES` in `tools/cli/src/walkthrough/voices.ts`. It joins the order used when
+  `WALKTHROUGH_VOICE` is unset or empty only through `selectDefaultVoice` there.
+- Give it a `TOOL_SPECS` entry in `tools/cli/src/check-tools/specs.ts`.
+- Add its tool name to the `check-tools --require` line above. `check-tools` reports only the tools
+  that line names, so a voice left off it never appears: the listed voices all read
+  `unconfigured` while it is selected, and the video is reported silent.
+- Add its name to the `walkthrough render` help text in `tools/cli/src/commands/walkthrough.ts`.
+- Check and update every sentence in `README.md` and `skills/` that names the existing voices, and
+  document the new voice's variables:
+  `git grep -n -i -e kokoro -e elevenlabs -e mac-voice -e WALKTHROUGH_MAC_VOICE -- README.md skills`.
+- Update the tests that hard-code the voice names: the no-voice notice, the unknown-voice message
+  ("elevenlabs, kokoro, mac") and the voice lists in the check-tools expectations, all in
+  `tools/cli/src/commands/walkthrough.test.ts`.
 
 ## Write the script
 
@@ -157,16 +180,17 @@ walkthrough render --script "docs/plans/<doc-basename>.walkthrough.json" --out "
   problems means fix the script and re-run.
 - Exit 2 means a tool it needs isn't usable:
   - `ffmpeg -version` doesn't run cleanly, whether `ffmpeg` is missing or broken;
-  - `ELEVEN_LABS_API_KEY` is unset, Kokoro is not selected, `WALKTHROUGH_MAC_VOICE` is set, and
-    `say` or `ffprobe` doesn't run cleanly, whether it is missing or broken (`say` is macOS-only);
+  - the macOS voice narrates and `say` or `ffprobe` doesn't run cleanly, whether it is missing or
+    broken (`say` is macOS-only);
   - `hyperframes browser ensure`, run through `npx`, doesn't exit 0. For example: `npx` is missing,
     the HyperFrames package can't be fetched, or no Chrome can be found or downloaded.
-- A voice error exits 1: ElevenLabs with its status, Kokoro with its exit. Stop and report that
-  voice as broken, the same as `check-tools`' `onFailure`. Scenes already voiced stay cached. With
-  Kokoro selected, a missing `uv` exits 2 like any other missing tool.
-- With neither Kokoro selected nor `ELEVEN_LABS_API_KEY` set, a `WALKTHROUGH_MAC_VOICE` naming a
-  voice that isn't installed exits 1 before anything renders. Stop and report it, the same as
-  `check-tools`' `onFailure` for `mac-voice`.
+- A voice error exits 1: ElevenLabs with its status, Kokoro with its exit, the macOS voice with the
+  `say` or `ffprobe` failure. Stop and report that voice as broken, the same as `check-tools`'
+  `onFailure`. Scenes already voiced stay cached. With Kokoro selected, a missing `uv` exits 2 like
+  any other missing tool.
+- When the macOS voice narrates, a `WALKTHROUGH_MAC_VOICE` naming a voice that isn't installed exits
+  1 before anything renders. Stop and report it, the same as `check-tools`' `onFailure` for
+  `mac-voice`.
 - stdout is a JSON summary. `narrated: false` means the video was rendered silent, with subtitles.
   `voice` says which voice narrated it: `elevenlabs`, `kokoro`, `mac`, or `null`.
   `overNotionLimit: true` means the video is over 20 MiB and won't upload.

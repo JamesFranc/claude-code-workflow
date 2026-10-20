@@ -1,10 +1,18 @@
 import { spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { SPEED, TtsError, readCached, type Alignment, type Narration } from './tts.ts'
+import {
+  SPEED,
+  VoiceError,
+  readCached,
+  writeCacheEntry,
+  type Alignment,
+  type Narration,
+  type Voice,
+} from './voice.ts'
 
 export interface SpokenWord {
   text: string
@@ -18,17 +26,12 @@ export interface KokoroOptions {
 }
 
 export const DEFAULT_KOKORO_VOICE = 'af_heart'
-export const KOKORO_ENGINE = 'kokoro'
 export const KOKORO_PACKAGES = ['kokoro==0.9.4', 'soundfile==0.14.0']
 const PYTHON = '3.12'
 const SPEAK_SCRIPT = fileURLToPath(new URL('./kokoro-speak.py', import.meta.url))
 // Child processes write to our stderr, so stdout carries only the JSON summary.
 const STDERR = 2
-
-export const unknownEngineProblem = (engine: string | undefined): string | undefined =>
-  engine === undefined || engine === '' || engine === KOKORO_ENGINE
-    ? undefined
-    : `WALKTHROUGH_VOICE is "${engine}"; the only voice it can name is ${KOKORO_ENGINE}.`
+const MISSING_TOOL_EXIT = 2
 
 export const narrateWithKokoro = (text: string, options: KokoroOptions): Narration => {
   const key = createHash('sha256')
@@ -46,7 +49,7 @@ export const narrateWithKokoro = (text: string, options: KokoroOptions): Narrati
     copyFileSync(mp3, audioFile)
   })
   const alignment = wordAlignment(text, words)
-  writeFileSync(entryFile, JSON.stringify({ audioFile: `${key}.mp3`, alignment }))
+  writeCacheEntry(entryFile, key, alignment)
   return { audioFile, alignment, cached: false }
 }
 
@@ -115,7 +118,7 @@ const speak = (text: string, voice: string, keep: (mp3: string) => void): Spoken
     run('ffmpeg', 'ffmpeg', ['-y', '-loglevel', 'error', '-i', wav, '-q:a', '4', mp3])
     const words = readWords(wordsFile)
     if (words.length === 0 && text.trim() !== '') {
-      throw new TtsError(
+      throw new VoiceError(
         `Kokoro voice "${voice}" returned no word timings; only American or British English ` +
           'voices (prefix a or b) give word timings'
       )
@@ -131,7 +134,7 @@ const run = (name: string, command: string, args: string[], input?: string): voi
   const result = spawnSync(command, args, { input, stdio: ['pipe', STDERR, STDERR] })
   if (result.status !== 0) {
     const why = result.error?.message ?? result.signal ?? `exit ${String(result.status)}`
-    throw new TtsError(`${name} failed to voice the narration (${why})`)
+    throw new VoiceError(`${name} failed to voice the narration (${why})`)
   }
 }
 
@@ -143,10 +146,10 @@ const readWords = (file: string): SpokenWord[] => {
     if (!(err instanceof SyntaxError)) {
       throw err
     }
-    throw new TtsError('Kokoro wrote word timings that are not JSON')
+    throw new VoiceError('Kokoro wrote word timings that are not JSON')
   }
   if (!isSpokenWords(words)) {
-    throw new TtsError('Kokoro wrote word timings that are not a list of {text, start, end}')
+    throw new VoiceError('Kokoro wrote word timings that are not a list of {text, start, end}')
   }
   return words
 }
@@ -174,3 +177,23 @@ const isSpokenWord = (value: unknown): value is SpokenWord =>
   'end' in value &&
   typeof value.end === 'number' &&
   Number.isFinite(value.end)
+
+const uvRuns = (): boolean => spawnSync('uv', ['--version'], { stdio: 'ignore' }).status === 0
+
+export const kokoro: Voice = {
+  name: 'kokoro',
+  chargedPerCharacter: false,
+  envProblem: () => undefined,
+  preflight: () =>
+    uvRuns()
+      ? undefined
+      : {
+          message:
+            'walkthrough: WALKTHROUGH_VOICE=kokoro needs uv on PATH; install it (brew install uv).',
+          exitCode: MISSING_TOOL_EXIT,
+        },
+  narrator: (env) => {
+    const voice = env.KOKORO_VOICE || DEFAULT_KOKORO_VOICE
+    return async (text, _cues, cacheDir) => narrateWithKokoro(text, { voice, cacheDir })
+  },
+}

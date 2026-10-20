@@ -9,7 +9,7 @@ import {
 import { bringIntoView, frame, union, type Size } from './camera.ts'
 import type { PreparedScene } from './prepare.ts'
 import { captionsOf, type Caption } from './silent.ts'
-import type { Alignment } from './tts.ts'
+import type { Alignment } from './voice.ts'
 
 // Builds the HyperFrames composition (index.html) for a prepared script, narrated or silent. Every
 // reveal, highlight and camera move is a tween on one paused GSAP timeline; HyperFrames seeks it

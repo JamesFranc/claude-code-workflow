@@ -5,7 +5,7 @@ import { createRequire } from 'node:module'
 import { JSDOM } from 'jsdom'
 import { CAPTIONED_DIAGRAM_AREA, DIAGRAM_AREA, composeHtml, timeScenes } from './compose.ts'
 import { prepareScript, type PreparedScene } from './prepare.ts'
-import type { Alignment } from './tts.ts'
+import type { Alignment } from './voice.ts'
 
 const SEQUENCE = [
   'sequenceDiagram',

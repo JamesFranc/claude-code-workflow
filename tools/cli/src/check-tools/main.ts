@@ -41,7 +41,9 @@ export const classifyTool = (tool: string, env: NodeJS.ProcessEnv): ToolResult =
     )
   }
 
-  if (present.length > 0) return result(spec, 'configured', present, missing, accepted)
+  if (spec.inUse?.(env) ?? present.length > 0) {
+    return result(spec, 'configured', present, missing, accepted)
+  }
 
   return result(
     spec,
@@ -49,7 +51,7 @@ export const classifyTool = (tool: string, env: NodeJS.ProcessEnv): ToolResult =
     present,
     missing,
     accepted,
-    `env vars not set: ${accepted.join(', ')}`
+    spec.unusedReason?.(env) ?? `env vars not set: ${accepted.join(', ')}`
   )
 }
 

@@ -8,17 +8,20 @@ const renderCommand = buildCommand({
       'Reads a walkthrough script (JSON), checks every scene before voicing any of it, voices each ' +
       "scene's narration (reusing <script-basename>.cache/ beside the script for narration that " +
       "has not changed; with a macOS voice, changing a scene's cues re-voices it too), and renders " +
-      'the scenes with HyperFrames to the given MP4. WALKTHROUGH_VOICE=kokoro voices it locally ' +
-      'with Kokoro through uv (KOKORO_VOICE picks the English voice, default af_heart); otherwise ' +
-      'ELEVEN_LABS_API_KEY voices it with ElevenLabs (ELEVEN_LABS_VOICE_ID picks the voice; ' +
-      'changing either voice re-voices every scene), and failing that the macOS voice ' +
-      "WALKTHROUGH_MAC_VOICE names does, as listed by say -v '?'. With none of them, the video is " +
-      'rendered without a voice: each scene lasts as long as reading its narration takes, and the ' +
-      'narration is shown as subtitles. Prints a JSON summary to stdout, whose narrated and voice ' +
-      'fields say which. Exits 2 when ffmpeg is missing, uv is missing with Kokoro selected, ' +
-      'HyperFrames cannot find or download Chrome, or a macOS voice is asked for and say or ' +
-      'ffprobe cannot run; 1 when the script or WALKTHROUGH_VOICE is invalid, the macOS voice is ' +
-      'not installed, or voicing or the render fails.',
+      'the scenes with HyperFrames to the given MP4. WALKTHROUGH_VOICE names the voice, kokoro, ' +
+      'elevenlabs or mac. kokoro voices it locally with Kokoro through uv (KOKORO_VOICE picks the ' +
+      'English voice, default af_heart); elevenlabs voices it with ElevenLabs ' +
+      '(ELEVEN_LABS_VOICE_ID picks the voice; changing either voice re-voices every scene); mac ' +
+      "voices it with the macOS voice WALKTHROUGH_MAC_VOICE names, as listed by say -v '?'. Unset " +
+      'or empty, it is ElevenLabs when ELEVEN_LABS_API_KEY is set to a non-blank value, else the ' +
+      'macOS voice when WALKTHROUGH_MAC_VOICE is set to a non-blank value, and otherwise the video ' +
+      'is rendered without a voice: each scene lasts as long as reading its narration takes, and ' +
+      'the narration is shown as subtitles. Prints a JSON summary to stdout, whose narrated and ' +
+      'voice fields say which. Exits 2 when ffmpeg is missing, uv is missing with Kokoro ' +
+      'selected, say or ffprobe cannot run with the macOS voice selected, or HyperFrames cannot ' +
+      'find or download Chrome, and 1 when the script or WALKTHROUGH_VOICE is invalid, ' +
+      'WALKTHROUGH_VOICE=elevenlabs has no ELEVEN_LABS_API_KEY, WALKTHROUGH_VOICE=mac has no ' +
+      'WALKTHROUGH_MAC_VOICE, the macOS voice is not installed, or the voice or the render fails.',
   },
   parameters: {
     flags: {

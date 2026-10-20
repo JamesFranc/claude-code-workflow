@@ -5,7 +5,8 @@ import { createServer, type IncomingMessage } from 'node:http'
 import { mkdtempSync, readFileSync, readdirSync, rmSync, unlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { MODEL_ID, SPEED, TtsError, narrate } from './tts.ts'
+import { MODEL_ID, narrate } from './elevenlabs.ts'
+import { SPEED, VoiceError } from './voice.ts'
 
 const alignment = {
   characters: ['H', 'i'],
@@ -99,7 +100,7 @@ test('narrate: a non-2xx answer throws with the status and body and caches nothi
       await assert.rejects(
         narrate('Hi', { apiKey: 'k', voiceId: 'v', cacheDir, apiBase }),
         (err) =>
-          err instanceof TtsError &&
+          err instanceof VoiceError &&
           err.message === 'ElevenLabs returned 429: {"detail":"quota exceeded"}'
       )
     })
@@ -134,7 +135,7 @@ test('narrate: re-voices an entry whose JSON is truncated or whose audio is miss
   }
 })
 
-test('narrate: a reply cut off mid-body propagates the read failure, not a not-JSON TtsError', async () => {
+test('narrate: a reply cut off mid-body propagates the read failure, not a not-JSON VoiceError', async () => {
   const cacheDir = mkdtempSync(join(tmpdir(), 'walkthrough-tts-test-'))
   const server = createServer((_, res) => {
     res.writeHead(200, { 'content-type': 'application/json', 'content-length': '1000' })
@@ -147,7 +148,7 @@ test('narrate: a reply cut off mid-body propagates the read failure, not a not-J
   try {
     await assert.rejects(
       narrate('Hi', { apiKey: 'k', voiceId: 'v', cacheDir, apiBase: `http://127.0.0.1:${port}` }),
-      (err) => err instanceof TypeError && !(err instanceof TtsError)
+      (err) => err instanceof TypeError && !(err instanceof VoiceError)
     )
     assert.deepEqual(readdirSync(cacheDir), [])
   } finally {
@@ -190,7 +191,7 @@ test('narrate: a settings reply that is a failure or not an object stops before 
         async (apiBase, requests) => {
           await assert.rejects(
             narrate('Hi', { apiKey: 'k', voiceId: 'v', cacheDir, apiBase }),
-            new TtsError(message)
+            new VoiceError(message)
           )
           assert.deepEqual(
             requests.map(({ url }) => url),
@@ -201,6 +202,26 @@ test('narrate: a settings reply that is a failure or not an object stops before 
         settings
       )
     }
+  } finally {
+    rmSync(cacheDir, { recursive: true, force: true })
+  }
+})
+
+test('narrate: the cache entry for a fixed voice, model, speed and text keeps its key', async () => {
+  const cacheDir = mkdtempSync(join(tmpdir(), 'walkthrough-tts-test-'))
+  try {
+    const key = 'eb07574a2a99bd32ea24414ea26552ad5a5e89fea05d20cf943f4a7806876ee1'
+    writeFileSync(join(cacheDir, `${key}.mp3`), 'seeded')
+    writeFileSync(join(cacheDir, `${key}.json`), JSON.stringify({ alignment }))
+    const result = await narrate('Hi', {
+      apiKey: 'k',
+      voiceId: 'v',
+      cacheDir,
+      apiBase: 'http://127.0.0.1:1',
+    })
+    assert.equal(result.cached, true)
+    assert.equal(result.audioFile, join(cacheDir, `${key}.mp3`))
+    assert.deepEqual(result.alignment, alignment)
   } finally {
     rmSync(cacheDir, { recursive: true, force: true })
   }

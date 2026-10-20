@@ -13,7 +13,7 @@ import { SCENE_TAIL } from '../walkthrough/compose.ts'
 import { classifyTool } from '../check-tools/main.ts'
 import { runWalkthroughRender } from '../walkthrough/main.ts'
 import { readingAlignment } from '../walkthrough/silent.ts'
-import { DEFAULT_VOICE_ID } from '../walkthrough/tts.ts'
+import { DEFAULT_VOICE_ID } from '../walkthrough/elevenlabs.ts'
 
 const mainTsPath = fileURLToPath(new URL('../main.ts', import.meta.url))
 
@@ -36,7 +36,16 @@ const runCli = (env: NodeJS.ProcessEnv, dir: string) =>
 test('CLI: walkthrough render exits 2 when ffmpeg is not on PATH', () => {
   const dir = mkdtempSync(join(tmpdir(), 'walkthrough-cli-test-'))
   try {
-    const result = runCli({ ...process.env, ELEVEN_LABS_API_KEY: 'k', PATH: dir }, dir)
+    const result = runCli(
+      {
+        ...process.env,
+        WALKTHROUGH_VOICE: '',
+        WALKTHROUGH_MAC_VOICE: '',
+        ELEVEN_LABS_API_KEY: 'k',
+        PATH: dir,
+      },
+      dir
+    )
     assert.equal(result.status, 2)
     assert.equal(result.stdout, '')
     assert.equal(
@@ -187,7 +196,16 @@ test('CLI: walkthrough render exits 2 naming the signal when ffmpeg is killed', 
   try {
     writeFileSync(join(dir, 'ffmpeg'), '#!/bin/sh\nkill -ABRT $$\n')
     chmodSync(join(dir, 'ffmpeg'), 0o755)
-    const result = runCli({ ...process.env, ELEVEN_LABS_API_KEY: 'k', PATH: dir }, dir)
+    const result = runCli(
+      {
+        ...process.env,
+        WALKTHROUGH_VOICE: '',
+        WALKTHROUGH_MAC_VOICE: '',
+        ELEVEN_LABS_API_KEY: 'k',
+        PATH: dir,
+      },
+      dir
+    )
     assert.equal(result.status, 2)
     assert.equal(result.stdout, '')
     assert.equal(
@@ -203,7 +221,16 @@ test('CLI: walkthrough render exits 2 when ffmpeg cannot be run', () => {
   const dir = mkdtempSync(join(tmpdir(), 'walkthrough-cli-test-'))
   try {
     mkdirSync(join(dir, 'ffmpeg'))
-    const result = runCli({ ...process.env, ELEVEN_LABS_API_KEY: 'k', PATH: dir }, dir)
+    const result = runCli(
+      {
+        ...process.env,
+        WALKTHROUGH_VOICE: '',
+        WALKTHROUGH_MAC_VOICE: '',
+        ELEVEN_LABS_API_KEY: 'k',
+        PATH: dir,
+      },
+      dir
+    )
     assert.equal(result.status, 2)
     assert.equal(result.stdout, '')
     assert.equal(
@@ -220,7 +247,16 @@ test('CLI: walkthrough render exits 2 when ffmpeg starts but exits nonzero', () 
   try {
     writeFileSync(join(dir, 'ffmpeg'), '#!/bin/sh\nexit 3\n')
     chmodSync(join(dir, 'ffmpeg'), 0o755)
-    const result = runCli({ ...process.env, ELEVEN_LABS_API_KEY: 'k', PATH: dir }, dir)
+    const result = runCli(
+      {
+        ...process.env,
+        WALKTHROUGH_VOICE: '',
+        WALKTHROUGH_MAC_VOICE: '',
+        ELEVEN_LABS_API_KEY: 'k',
+        PATH: dir,
+      },
+      dir
+    )
     assert.equal(result.status, 2)
     assert.equal(result.stdout, '')
     assert.equal(
@@ -357,7 +393,14 @@ test('walkthrough render: with no ElevenLabs key it renders silent, subtitled an
   const stdout: string[] = []
   const stderr = mock.method(console, 'error', () => undefined)
   try {
-    for (const env of [{}, { ELEVEN_LABS_API_KEY: '' }, { WALKTHROUGH_VOICE: '' }]) {
+    for (const env of [
+      {},
+      { ELEVEN_LABS_API_KEY: '' },
+      { ELEVEN_LABS_API_KEY: ' ' },
+      { WALKTHROUGH_VOICE: '' },
+      { WALKTHROUGH_MAC_VOICE: '' },
+      { WALKTHROUGH_MAC_VOICE: ' ' },
+    ]) {
       setRequestedExitCode(0)
       stdout.length = 0
       stderr.mock.resetCalls()
@@ -370,9 +413,10 @@ test('walkthrough render: with no ElevenLabs key it renders silent, subtitled an
         stderr.mock.calls.map((call) => call.arguments),
         [
           [
-            'walkthrough: none of WALKTHROUGH_VOICE=kokoro, ELEVEN_LABS_API_KEY or ' +
-              'WALKTHROUGH_MAC_VOICE is set, so the ' +
-              'walkthrough is rendered without a voice, with the narration as subtitles.',
+            'walkthrough: no voice is selected: WALKTHROUGH_VOICE is unset or empty, ' +
+              'ELEVEN_LABS_API_KEY is not set and WALKTHROUGH_MAC_VOICE is not set ' +
+              '(WALKTHROUGH_VOICE can name elevenlabs, kokoro, mac), so the walkthrough is ' +
+              'rendered without a voice, with the narration as subtitles.',
           ],
         ]
       )
@@ -424,6 +468,8 @@ test('CLI: walkthrough render with no ElevenLabs key exits 0 and prints the sile
     for (const key of [undefined, '']) {
       const env: NodeJS.ProcessEnv = { ...process.env, PATH: `${dir}:${process.env.PATH ?? ''}` }
       delete env.ELEVEN_LABS_API_KEY
+      delete env.WALKTHROUGH_VOICE
+      delete env.WALKTHROUGH_MAC_VOICE
       if (key !== undefined) {
         env.ELEVEN_LABS_API_KEY = key
       }
@@ -431,8 +477,10 @@ test('CLI: walkthrough render with no ElevenLabs key exits 0 and prints the sile
       assert.equal(result.status, 0)
       assert.equal(
         stderrBeyondNodeWarnings(result.stderr),
-        'walkthrough: none of WALKTHROUGH_VOICE=kokoro, ELEVEN_LABS_API_KEY or ' +
-          'WALKTHROUGH_MAC_VOICE is set, so the walkthrough is rendered without a voice, with the narration as subtitles.'
+        'walkthrough: no voice is selected: WALKTHROUGH_VOICE is unset or empty, ' +
+          'ELEVEN_LABS_API_KEY is not set and WALKTHROUGH_MAC_VOICE is not set ' +
+          '(WALKTHROUGH_VOICE can name elevenlabs, kokoro, mac), so the walkthrough is ' +
+          'rendered without a voice, with the narration as subtitles.'
       )
       assert.equal(
         result.stdout,
@@ -451,6 +499,348 @@ test('CLI: walkthrough render with no ElevenLabs key exits 0 and prints the sile
       )
     }
   } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('walkthrough render: a WALKTHROUGH_VOICE that names no voice exits 1 before any tool runs', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'walkthrough-cli-test-'))
+  writeFileSync(join(dir, 'ffmpeg'), `#!/bin/sh\necho ran > "${dir}/ffmpeg-ran"\nexit 0\n`)
+  chmodSync(join(dir, 'ffmpeg'), 0o755)
+  const path = process.env.PATH
+  process.env.PATH = `${dir}:${path ?? ''}`
+  const stdout: string[] = []
+  const stderr = mock.method(console, 'error', () => undefined)
+  try {
+    await runWalkthroughRender(join(dir, 's.json'), join(dir, 'o.mp4'), {
+      env: { WALKTHROUGH_VOICE: 'piper', ELEVEN_LABS_API_KEY: 'k' },
+      stdout: (chunk) => stdout.push(chunk),
+    })
+    assert.equal(getRequestedExitCode(), 1)
+    assert.deepEqual(stdout, [])
+    assert.deepEqual(
+      stderr.mock.calls.map((call) => call.arguments),
+      [
+        [
+          'walkthrough: WALKTHROUGH_VOICE is "piper"; the voices it can name are elevenlabs, kokoro, mac.',
+        ],
+      ]
+    )
+    assert.throws(() => readFileSync(join(dir, 'ffmpeg-ran')))
+  } finally {
+    stderr.mock.restore()
+    process.env.PATH = path
+    setRequestedExitCode(0)
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('walkthrough render: WALKTHROUGH_VOICE=kokoro without uv exits 2 before Chrome or narration', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'walkthrough-cli-test-'))
+  writeFileSync(join(dir, 'ffmpeg'), '#!/bin/sh\nexit 0\n')
+  writeFileSync(join(dir, 'npx'), `#!/bin/sh\necho ran > "${dir}/npx-ran"\nexit 0\n`)
+  for (const stub of ['ffmpeg', 'npx']) {
+    chmodSync(join(dir, stub), 0o755)
+  }
+  const path = process.env.PATH
+  process.env.PATH = dir
+  const script = join(dir, 's.json')
+  writeFileSync(
+    script,
+    JSON.stringify({
+      title: 'T',
+      palette: 'classic',
+      scenes: [{ heading: 'A', narration: 'Hi.', visual: { kind: 'title' } }],
+    })
+  )
+  const stderr = mock.method(console, 'error', () => undefined)
+  try {
+    await runWalkthroughRender(script, join(dir, 'o.mp4'), {
+      env: { WALKTHROUGH_VOICE: 'kokoro' },
+      stdout: () => undefined,
+    })
+    assert.equal(getRequestedExitCode(), 2)
+    assert.deepEqual(
+      stderr.mock.calls.map((call) => call.arguments),
+      [['walkthrough: WALKTHROUGH_VOICE=kokoro needs uv on PATH; install it (brew install uv).']]
+    )
+    assert.throws(() => readFileSync(join(dir, 'npx-ran')))
+  } finally {
+    stderr.mock.restore()
+    process.env.PATH = path
+    setRequestedExitCode(0)
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('walkthrough render: WALKTHROUGH_VOICE=kokoro narrates with Kokoro even when an ElevenLabs key is set', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'walkthrough-cli-test-'))
+  let requests = 0
+  const server = createServer((_, res) => {
+    requests++
+    res.writeHead(500).end()
+  })
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+  const address = server.address()
+  const port = typeof address === 'object' && address !== null ? address.port : 0
+  writeFileSync(
+    join(dir, 'npx'),
+    `#!/bin/sh\n[ "$3" = render ] && /bin/cp "$4/index.html" "${dir}/composed.html"\nexit 0\n`
+  )
+  writeFileSync(
+    join(dir, 'ffmpeg'),
+    `#!/bin/sh\n[ "$1" = -version ] && exit 0\nprintf '%s\\n' "$@" > "${dir}/ffmpeg-args"\nfor last; do :; done\nprintf mp3 > "$last"\n`
+  )
+  writeFileSync(
+    join(dir, 'uv'),
+    [
+      '#!/bin/sh',
+      '[ "$1" = --version ] && exit 0',
+      'while [ $# -gt 0 ]; do',
+      '  case "$1" in',
+      '    --audio) audio="$2"; shift ;;',
+      '    --words) words="$2"; shift ;;',
+      '  esac',
+      '  shift',
+      'done',
+      `cat > "${dir}/uv-stdin"`,
+      ': > "$audio"',
+      `printf '%s' '[{"text":"The","start":0,"end":0.2},{"text":"client","start":0.2,"end":0.6},{"text":"calls","start":0.6,"end":1},{"text":".","start":1,"end":1.1}]' > "$words"`,
+      '',
+    ].join('\n')
+  )
+  for (const stub of ['ffmpeg', 'npx', 'uv']) {
+    chmodSync(join(dir, stub), 0o755)
+  }
+  const path = process.env.PATH
+  process.env.PATH = `${dir}:${path ?? ''}`
+  const script = join(dir, 's.json')
+  writeFileSync(
+    script,
+    JSON.stringify({
+      title: 'T',
+      palette: 'classic',
+      scenes: [
+        {
+          heading: 'B',
+          narration: 'The client calls.',
+          visual: { kind: 'diagram', d2: '*: {class: tool}\nclient -> server' },
+          steps: [{ cue: 'client calls', show: ['server'] }],
+        },
+      ],
+    })
+  )
+  const stdout: string[] = []
+  const stderr = mock.method(console, 'error', () => undefined)
+  try {
+    setRequestedExitCode(0)
+    await runWalkthroughRender(script, join(dir, 'o.mp4'), {
+      env: { WALKTHROUGH_VOICE: 'kokoro', ELEVEN_LABS_API_KEY: 'k' },
+      apiBase: `http://127.0.0.1:${port}`,
+      stdout: (chunk) => stdout.push(chunk),
+    })
+    assert.equal(getRequestedExitCode(), 0)
+    assert.equal(requests, 0)
+    assert.deepEqual(stderr.mock.calls, [])
+    assert.equal(readFileSync(join(dir, 'uv-stdin'), 'utf-8'), 'The client calls.')
+    const summary: unknown = JSON.parse(stdout.join(''))
+    assert.ok(typeof summary === 'object' && summary !== null)
+    assert.equal('narrated' in summary && summary.narrated, true)
+    assert.equal('voice' in summary && summary.voice, 'kokoro')
+    assert.equal('synthesizedScenes' in summary && summary.synthesizedScenes, 1)
+    assert.match(readFileSync(join(dir, 'composed.html'), 'utf-8'), /<audio/)
+    assert.ok(readFileSync(join(dir, 'ffmpeg-args'), 'utf-8').split('\n').includes('-c:a'))
+  } finally {
+    stderr.mock.restore()
+    process.env.PATH = path
+    setRequestedExitCode(0)
+    server.close()
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('walkthrough render: a WALKTHROUGH_VOICE that render rejects is failed by check-tools, never configured', async () => {
+  const stderr = mock.method(console, 'error', () => undefined)
+  try {
+    for (const value of ['Kokoro', ' ']) {
+      setRequestedExitCode(0)
+      await runWalkthroughRender('s.json', 'o.mp4', {
+        env: { WALKTHROUGH_VOICE: value },
+        stdout: () => undefined,
+      })
+      assert.equal(getRequestedExitCode(), 1)
+      for (const tool of ['kokoro', 'elevenlabs', 'mac-voice']) {
+        const checked = classifyTool(tool, { WALKTHROUGH_VOICE: value })
+        assert.equal(checked.state, 'failed')
+        assert.deepEqual(stderr.mock.calls.at(-1)?.arguments, [
+          `walkthrough: ${checked.reason ?? ''}`,
+        ])
+      }
+    }
+  } finally {
+    stderr.mock.restore()
+    setRequestedExitCode(0)
+  }
+})
+
+test('check-tools: only the voice that render would narrate with is configured', () => {
+  const states = (env: NodeJS.ProcessEnv): string[] =>
+    ['elevenlabs', 'kokoro', 'mac-voice'].map((tool) => `${tool}:${classifyTool(tool, env).state}`)
+  assert.deepEqual(states({ ELEVEN_LABS_API_KEY: 'k' }), [
+    'elevenlabs:configured',
+    'kokoro:unconfigured',
+    'mac-voice:unconfigured',
+  ])
+  assert.deepEqual(states({ ELEVEN_LABS_API_KEY: 'k', WALKTHROUGH_VOICE: 'elevenlabs' }), [
+    'elevenlabs:configured',
+    'kokoro:unconfigured',
+    'mac-voice:unconfigured',
+  ])
+  assert.deepEqual(states({ ELEVEN_LABS_API_KEY: 'k', WALKTHROUGH_VOICE: 'kokoro' }), [
+    'elevenlabs:unconfigured',
+    'kokoro:configured',
+    'mac-voice:unconfigured',
+  ])
+  assert.deepEqual(states({ WALKTHROUGH_VOICE: 'kokoro' }), [
+    'elevenlabs:unconfigured',
+    'kokoro:configured',
+    'mac-voice:unconfigured',
+  ])
+  assert.deepEqual(states({ WALKTHROUGH_VOICE: '' }), [
+    'elevenlabs:unconfigured',
+    'kokoro:unconfigured',
+    'mac-voice:unconfigured',
+  ])
+  assert.deepEqual(states({ WALKTHROUGH_VOICE: 'elevenlabs' }), [
+    'elevenlabs:failed',
+    'kokoro:unconfigured',
+    'mac-voice:unconfigured',
+  ])
+  assert.deepEqual(states({ ELEVEN_LABS_API_KEY: ' ' }), [
+    'elevenlabs:unconfigured',
+    'kokoro:unconfigured',
+    'mac-voice:unconfigured',
+  ])
+  assert.deepEqual(states({ ELEVEN_LABS_API_KEY: ' ', WALKTHROUGH_VOICE: 'elevenlabs' }), [
+    'elevenlabs:failed',
+    'kokoro:unconfigured',
+    'mac-voice:unconfigured',
+  ])
+  assert.deepEqual(states({ WALKTHROUGH_MAC_VOICE: 'Tester' }), [
+    'elevenlabs:unconfigured',
+    'kokoro:unconfigured',
+    'mac-voice:configured',
+  ])
+  assert.deepEqual(states({ WALKTHROUGH_MAC_VOICE: 'Tester', ELEVEN_LABS_API_KEY: 'k' }), [
+    'elevenlabs:configured',
+    'kokoro:unconfigured',
+    'mac-voice:unconfigured',
+  ])
+  assert.deepEqual(states({ WALKTHROUGH_MAC_VOICE: 'Tester', WALKTHROUGH_VOICE: 'mac' }), [
+    'elevenlabs:unconfigured',
+    'kokoro:unconfigured',
+    'mac-voice:configured',
+  ])
+  assert.deepEqual(states({ WALKTHROUGH_MAC_VOICE: ' ' }), [
+    'elevenlabs:unconfigured',
+    'kokoro:unconfigured',
+    'mac-voice:unconfigured',
+  ])
+  assert.deepEqual(states({ WALKTHROUGH_VOICE: 'mac' }), [
+    'elevenlabs:unconfigured',
+    'kokoro:unconfigured',
+    'mac-voice:failed',
+  ])
+  assert.deepEqual(states({ WALKTHROUGH_VOICE: 'mac', WALKTHROUGH_MAC_VOICE: ' ' }), [
+    'elevenlabs:unconfigured',
+    'kokoro:unconfigured',
+    'mac-voice:failed',
+  ])
+  assert.equal(
+    classifyTool('elevenlabs', { WALKTHROUGH_VOICE: 'elevenlabs' }).reason,
+    'WALKTHROUGH_VOICE=elevenlabs, but ELEVEN_LABS_API_KEY is not set'
+  )
+  assert.equal(
+    classifyTool('mac-voice', { WALKTHROUGH_VOICE: 'mac' }).reason,
+    'WALKTHROUGH_VOICE=mac, but WALKTHROUGH_MAC_VOICE is not set'
+  )
+  assert.equal(
+    classifyTool('kokoro', { WALKTHROUGH_VOICE: 'elevenlabs', ELEVEN_LABS_API_KEY: 'k' }).reason,
+    'WALKTHROUGH_VOICE selects elevenlabs'
+  )
+  assert.equal(
+    classifyTool('elevenlabs', { WALKTHROUGH_VOICE: 'kokoro', ELEVEN_LABS_API_KEY: 'k' }).reason,
+    'WALKTHROUGH_VOICE selects kokoro'
+  )
+  assert.equal(
+    classifyTool('mac-voice', { WALKTHROUGH_MAC_VOICE: 'Tester', ELEVEN_LABS_API_KEY: 'k' }).reason,
+    'elevenlabs is selected ahead of it'
+  )
+  assert.equal(
+    classifyTool('kokoro', { WALKTHROUGH_MAC_VOICE: 'Tester', ELEVEN_LABS_API_KEY: 'k' }).reason,
+    'env vars not set: WALKTHROUGH_VOICE'
+  )
+})
+
+test('walkthrough render: WALKTHROUGH_VOICE=elevenlabs narrates with ElevenLabs, and without a key exits 1 before any tool runs', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'walkthrough-cli-test-'))
+  const urls: string[] = []
+  const server = createServer((req, res) => {
+    urls.push(req.url ?? '')
+    res.writeHead(500).end()
+  })
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+  const address = server.address()
+  const port = typeof address === 'object' && address !== null ? address.port : 0
+  writeFileSync(join(dir, 'ffmpeg'), `#!/bin/sh\necho ran > "${dir}/ffmpeg-ran"\nexit 0\n`)
+  writeFileSync(join(dir, 'npx'), '#!/bin/sh\nexit 0\n')
+  for (const stub of ['ffmpeg', 'npx']) {
+    chmodSync(join(dir, stub), 0o755)
+  }
+  const path = process.env.PATH
+  process.env.PATH = `${dir}:${path ?? ''}`
+  const script = join(dir, 's.json')
+  writeFileSync(
+    script,
+    JSON.stringify({
+      title: 'T',
+      palette: 'classic',
+      scenes: [{ heading: 'A', narration: 'Hello.', visual: { kind: 'title' } }],
+    })
+  )
+  const stderr = mock.method(console, 'error', () => undefined)
+  try {
+    await runWalkthroughRender(script, join(dir, 'o.mp4'), {
+      env: { WALKTHROUGH_VOICE: 'elevenlabs', ELEVEN_LABS_API_KEY: 'k', ELEVEN_LABS_VOICE_ID: 'v' },
+      apiBase: `http://127.0.0.1:${port}`,
+      stdout: () => undefined,
+    })
+    assert.deepEqual(urls, ['/v1/voices/v/settings'])
+    assert.equal(getRequestedExitCode(), 1)
+
+    for (const key of [undefined, ' ']) {
+      urls.length = 0
+      rmSync(join(dir, 'ffmpeg-ran'), { force: true })
+      stderr.mock.resetCalls()
+      setRequestedExitCode(0)
+      await runWalkthroughRender(script, join(dir, 'o.mp4'), {
+        env: { WALKTHROUGH_VOICE: 'elevenlabs', ELEVEN_LABS_API_KEY: key },
+        apiBase: `http://127.0.0.1:${port}`,
+        stdout: () => undefined,
+      })
+      assert.equal(getRequestedExitCode(), 1)
+      assert.deepEqual(urls, [])
+      assert.deepEqual(
+        stderr.mock.calls.map((call) => call.arguments),
+        [['walkthrough: WALKTHROUGH_VOICE=elevenlabs, but ELEVEN_LABS_API_KEY is not set']]
+      )
+      assert.throws(() => readFileSync(join(dir, 'ffmpeg-ran')))
+    }
+  } finally {
+    stderr.mock.restore()
+    process.env.PATH = path
+    setRequestedExitCode(0)
+    server.close()
     rmSync(dir, { recursive: true, force: true })
   }
 })
@@ -642,73 +1032,8 @@ test('walkthrough render: an ElevenLabs key wins over WALKTHROUGH_MAC_VOICE', as
   }
 })
 
-test('walkthrough render: a WALKTHROUGH_VOICE other than kokoro exits 1 before any tool runs', async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'walkthrough-cli-test-'))
-  writeFileSync(join(dir, 'ffmpeg'), `#!/bin/sh\necho ran > "${dir}/ffmpeg-ran"\nexit 0\n`)
-  chmodSync(join(dir, 'ffmpeg'), 0o755)
-  const path = process.env.PATH
-  process.env.PATH = `${dir}:${path ?? ''}`
-  const stdout: string[] = []
-  const stderr = mock.method(console, 'error', () => undefined)
-  try {
-    await runWalkthroughRender(join(dir, 's.json'), join(dir, 'o.mp4'), {
-      env: { WALKTHROUGH_VOICE: 'elevenlabs', ELEVEN_LABS_API_KEY: 'k' },
-      stdout: (chunk) => stdout.push(chunk),
-    })
-    assert.equal(getRequestedExitCode(), 1)
-    assert.deepEqual(stdout, [])
-    assert.deepEqual(
-      stderr.mock.calls.map((call) => call.arguments),
-      [['walkthrough: WALKTHROUGH_VOICE is "elevenlabs"; the only voice it can name is kokoro.']]
-    )
-    assert.throws(() => readFileSync(join(dir, 'ffmpeg-ran')))
-  } finally {
-    stderr.mock.restore()
-    process.env.PATH = path
-    setRequestedExitCode(0)
-    rmSync(dir, { recursive: true, force: true })
-  }
-})
-
-test('walkthrough render: WALKTHROUGH_VOICE=kokoro without uv exits 2 before Chrome or narration', async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'walkthrough-cli-test-'))
-  writeFileSync(join(dir, 'ffmpeg'), '#!/bin/sh\nexit 0\n')
-  writeFileSync(join(dir, 'npx'), `#!/bin/sh\necho ran > "${dir}/npx-ran"\nexit 0\n`)
-  for (const stub of ['ffmpeg', 'npx']) {
-    chmodSync(join(dir, stub), 0o755)
-  }
-  const path = process.env.PATH
-  process.env.PATH = dir
-  const script = join(dir, 's.json')
-  writeFileSync(
-    script,
-    JSON.stringify({
-      title: 'T',
-      palette: 'classic',
-      scenes: [{ heading: 'A', narration: 'Hi.', visual: { kind: 'title' } }],
-    })
-  )
-  const stderr = mock.method(console, 'error', () => undefined)
-  try {
-    await runWalkthroughRender(script, join(dir, 'o.mp4'), {
-      env: { WALKTHROUGH_VOICE: 'kokoro' },
-      stdout: () => undefined,
-    })
-    assert.equal(getRequestedExitCode(), 2)
-    assert.deepEqual(
-      stderr.mock.calls.map((call) => call.arguments),
-      [['walkthrough: WALKTHROUGH_VOICE=kokoro needs uv on PATH; install it (brew install uv).']]
-    )
-    assert.throws(() => readFileSync(join(dir, 'npx-ran')))
-  } finally {
-    stderr.mock.restore()
-    process.env.PATH = path
-    setRequestedExitCode(0)
-    rmSync(dir, { recursive: true, force: true })
-  }
-})
-
-test('walkthrough render: WALKTHROUGH_VOICE=kokoro narrates with Kokoro even when an ElevenLabs key is set', async () => {
+test('walkthrough render: WALKTHROUGH_VOICE=mac narrates with the macOS voice even when an ElevenLabs key is set', async () => {
+  setRequestedExitCode(0)
   const dir = mkdtempSync(join(tmpdir(), 'walkthrough-cli-test-'))
   let requests = 0
   const server = createServer((_, res) => {
@@ -718,35 +1043,8 @@ test('walkthrough render: WALKTHROUGH_VOICE=kokoro narrates with Kokoro even whe
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
   const address = server.address()
   const port = typeof address === 'object' && address !== null ? address.port : 0
-  writeFileSync(
-    join(dir, 'npx'),
-    `#!/bin/sh\n[ "$3" = render ] && /bin/cp "$4/index.html" "${dir}/composed.html"\nexit 0\n`
-  )
-  writeFileSync(
-    join(dir, 'ffmpeg'),
-    `#!/bin/sh\n[ "$1" = -version ] && exit 0\nprintf '%s\\n' "$@" > "${dir}/ffmpeg-args"\nfor last; do :; done\nprintf mp3 > "$last"\n`
-  )
-  writeFileSync(
-    join(dir, 'uv'),
-    [
-      '#!/bin/sh',
-      '[ "$1" = --version ] && exit 0',
-      'while [ $# -gt 0 ]; do',
-      '  case "$1" in',
-      '    --audio) audio="$2"; shift ;;',
-      '    --words) words="$2"; shift ;;',
-      '  esac',
-      '  shift',
-      'done',
-      `cat > "${dir}/uv-stdin"`,
-      ': > "$audio"',
-      `printf '%s' '[{"text":"The","start":0,"end":0.2},{"text":"client","start":0.2,"end":0.6},{"text":"calls","start":0.6,"end":1},{"text":".","start":1,"end":1.1}]' > "$words"`,
-      '',
-    ].join('\n')
-  )
-  for (const stub of ['ffmpeg', 'npx', 'uv']) {
-    chmodSync(join(dir, stub), 0o755)
-  }
+  writeRenderStubs(dir)
+  macVoiceStubs(dir)
   const path = process.env.PATH
   process.env.PATH = `${dir}:${path ?? ''}`
   const script = join(dir, 's.json')
@@ -755,36 +1053,28 @@ test('walkthrough render: WALKTHROUGH_VOICE=kokoro narrates with Kokoro even whe
     JSON.stringify({
       title: 'T',
       palette: 'classic',
-      scenes: [
-        {
-          heading: 'B',
-          narration: 'The client calls.',
-          visual: { kind: 'diagram', d2: '*: {class: tool}\nclient -> server' },
-          steps: [{ cue: 'client calls', show: ['server'] }],
-        },
-      ],
+      scenes: [{ heading: 'A', narration: 'Hello.', visual: { kind: 'title' } }],
     })
   )
   const stdout: string[] = []
   const stderr = mock.method(console, 'error', () => undefined)
   try {
-    setRequestedExitCode(0)
     await runWalkthroughRender(script, join(dir, 'o.mp4'), {
-      env: { WALKTHROUGH_VOICE: 'kokoro', ELEVEN_LABS_API_KEY: 'k' },
+      env: {
+        WALKTHROUGH_VOICE: 'mac',
+        WALKTHROUGH_MAC_VOICE: 'Tester',
+        ELEVEN_LABS_API_KEY: 'k',
+      },
       apiBase: `http://127.0.0.1:${port}`,
       stdout: (chunk) => stdout.push(chunk),
     })
     assert.equal(getRequestedExitCode(), 0)
     assert.equal(requests, 0)
     assert.deepEqual(stderr.mock.calls, [])
-    assert.equal(readFileSync(join(dir, 'uv-stdin'), 'utf-8'), 'The client calls.')
     const summary: unknown = JSON.parse(stdout.join(''))
     assert.ok(typeof summary === 'object' && summary !== null)
-    assert.equal('narrated' in summary && summary.narrated, true)
-    assert.equal('voice' in summary && summary.voice, 'kokoro')
-    assert.equal('synthesizedScenes' in summary && summary.synthesizedScenes, 1)
-    assert.match(readFileSync(join(dir, 'composed.html'), 'utf-8'), /<audio/)
-    assert.ok(readFileSync(join(dir, 'ffmpeg-args'), 'utf-8').split('\n').includes('-c:a'))
+    assert.equal('voice' in summary && summary.voice, 'mac')
+    assert.equal('ttsCharacters' in summary && summary.ttsCharacters, 0)
   } finally {
     stderr.mock.restore()
     process.env.PATH = path
@@ -794,27 +1084,41 @@ test('walkthrough render: WALKTHROUGH_VOICE=kokoro narrates with Kokoro even whe
   }
 })
 
-test('walkthrough render: a WALKTHROUGH_VOICE that render rejects is failed by check-tools, never configured', async () => {
+test('walkthrough render: WALKTHROUGH_VOICE=mac without WALKTHROUGH_MAC_VOICE exits 1 before any tool runs', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'walkthrough-cli-test-'))
+  writeRenderStubs(dir)
+  writeFileSync(
+    join(dir, 'ffmpeg'),
+    `#!/bin/sh
+echo ran > "${dir}/ffmpeg-ran"
+exit 0
+`
+  )
+  const path = process.env.PATH
+  process.env.PATH = `${dir}:${path ?? ''}`
+  const stdout: string[] = []
   const stderr = mock.method(console, 'error', () => undefined)
   try {
-    for (const value of ['Kokoro', ' ']) {
+    for (const macVoice of [undefined, '', ' ']) {
+      stderr.mock.resetCalls()
       setRequestedExitCode(0)
-      await runWalkthroughRender('s.json', 'o.mp4', {
-        env: { WALKTHROUGH_VOICE: value },
-        stdout: () => undefined,
+      await runWalkthroughRender(join(dir, 's.json'), join(dir, 'o.mp4'), {
+        env: { WALKTHROUGH_VOICE: 'mac', WALKTHROUGH_MAC_VOICE: macVoice },
+        stdout: (chunk) => stdout.push(chunk),
       })
       assert.equal(getRequestedExitCode(), 1)
-      const checked = classifyTool('kokoro', { WALKTHROUGH_VOICE: value })
-      assert.equal(checked.state, 'failed')
-      assert.deepEqual(stderr.mock.calls.at(-1)?.arguments, [
-        `walkthrough: ${checked.reason ?? ''}`,
-      ])
+      assert.deepEqual(stdout, [])
+      assert.deepEqual(
+        stderr.mock.calls.map((call) => call.arguments),
+        [['walkthrough: WALKTHROUGH_VOICE=mac, but WALKTHROUGH_MAC_VOICE is not set']]
+      )
+      assert.throws(() => readFileSync(join(dir, 'ffmpeg-ran')), { code: 'ENOENT' })
     }
-    assert.equal(classifyTool('kokoro', { WALKTHROUGH_VOICE: 'kokoro' }).state, 'configured')
-    assert.equal(classifyTool('kokoro', { WALKTHROUGH_VOICE: '' }).state, 'unconfigured')
   } finally {
     stderr.mock.restore()
+    process.env.PATH = path
     setRequestedExitCode(0)
+    rmSync(dir, { recursive: true, force: true })
   }
 })
 
