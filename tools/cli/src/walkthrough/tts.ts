@@ -47,7 +47,7 @@ export const narrate = async (text: string, options: TtsOptions): Promise<Narrat
   return { audioFile, alignment, cached: false }
 }
 
-const readCached = (entryFile: string, audioFile: string): Alignment | undefined => {
+export const readCached = (entryFile: string, audioFile: string): Alignment | undefined => {
   try {
     const entry: unknown = JSON.parse(readFileSync(entryFile, 'utf-8'))
     const alignment = isRecord(entry) ? entry.alignment : undefined

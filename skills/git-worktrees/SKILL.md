@@ -1,5 +1,5 @@
 ---
-name: Git Worktrees
+name: git-worktrees
 description: Use when starting feature work that needs an isolated workspace - creates git worktrees under .worktrees/ with proper setup, always branching from origin/main after fetching
 ---
 

@@ -1,5 +1,5 @@
 ---
-name: Workflow Guide
+name: workflow-guide
 description: Use at the start of every conversation before doing any work — checks which workflow skills apply to the user's request and ensures the right skill chain is followed. Triggers on any new task, feature request, bug report, documentation change, or work request.
 ---
 

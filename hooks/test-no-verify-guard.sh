@@ -17,7 +17,7 @@
 #
 # The audit MUST run with the INHERITED environment, not a synthetic one built for convenience.
 # A prior audit run exported CMD=/bin/bash before executing payloads and reported a KNOWN
-# FAIL-OPEN finding for a row (in test-process-kill-guard.sh) whose payload referenced $CMD --
+# FAIL-OPEN finding for a row (in test-dangerous-command-guard.sh) whose payload referenced $CMD --
 # populating the very variable the payload depended on, so it "confirmed" a fail-open that is
 # inert in essentially every real environment ($CMD is not a variable bash or any common tool
 # sets). The audit answered a question about a world that does not exist. That row's payload was
@@ -131,7 +131,7 @@ EOF' \
 # indistinguishable from a real invocation, because the scan matches anywhere in a segment rather
 # than requiring `git` to be at COMMAND POSITION. Fixing that would need position-matching plus a
 # wrapper allowlist (sudo/env/timeout/... prefixes still need to count as "really is git"), which
-# is the design `process-kill-guard.sh` used until FLOW-228, whose keyword list of ordinary
+# is the design `dangerous-command-guard.sh` used until FLOW-228, whose keyword list of ordinary
 # English words (`do`, `then`, `else`, `time`, `command`, `env`) false-blocked prose --
 # FLOW-228.
 # Anywhere-in-segment fails toward BLOCKING; command-position-plus-allowlist fails toward ALLOWING.
@@ -386,7 +386,7 @@ git commit --no-verify -m \"x\"" \
 # genuinely executed. Fixed by applying this hook's own bare-word check to the raw
 # command whenever shlex fails to tokenize -- unconditionally (an earlier
 # `bash -n` gate here was tried and removed once its premise was found broken by bash being
-# a streaming parser; see process-kill-guard.sh's `except ValueError:` comment for the full story). Measured against the hook before this fix: exit=0
+# a streaming parser; see dangerous-command-guard.sh's `except ValueError:` comment for the full story). Measured against the hook before this fix: exit=0
 # there (should be 2).
 test_bash_ground_truth_heredoc_apostrophe() {
   local description="bash ground truth: a heredoc body containing an apostrophe does not prevent the line after it from running"
@@ -421,7 +421,7 @@ git commit -m "x"' \
   0
 
 # Partial execution -- the exact shape that falsified the earlier `bash -n`
-# gate (removed; see process-kill-guard.sh's `except ValueError:` comment for the full story). bash is
+# gate (removed; see dangerous-command-guard.sh's `except ValueError:` comment for the full story). bash is
 # a STREAMING parser: it executes each complete command as it reads the input, so a real
 # invocation on an early line runs even though a later, unrelated syntax error makes the WHOLE
 # command unparseable by both shlex and `bash -n`. Measured against the hook before this fix
@@ -552,7 +552,7 @@ test_case "Round 15 FIXED: escaped squote followed by a real squote no longer hi
 echo 'balance" \
   2
 
-# See test-process-kill-guard.sh for the full escaped-heredoc-opener story.
+# See test-dangerous-command-guard.sh for the full escaped-heredoc-opener story.
 # Measured against 6d902e1: exit=0 (fail-open) there; must be exit=2 here.
 test_case "Round 16 FIXED: escaped '<' before '<<' no longer hides a real invocation" \
   'cat \<<EOF
@@ -561,7 +561,7 @@ EOF' \
   2 \
   'BLOCKED: --no-verify is not allowed'
 
-# See test-process-kill-guard.sh for the full backslash/quote-split-interpreter story.
+# See test-dangerous-command-guard.sh for the full backslash/quote-split-interpreter story.
 # Measured against b14731c: exit=0 (fail-open) there; must be exit=2 here.
 test_case "Round 17 FIXED: a backslash-split interpreter name no longer hides a real invocation" \
   'cat <<EOF | b\ash
@@ -589,7 +589,7 @@ test_case "Round 18 CONTROL: git+--no-verify inside a SINGLE-quoted backtick spa
   0
 
 
-# See test-process-kill-guard.sh for the full accepted-over-block story.
+# See test-dangerous-command-guard.sh for the full accepted-over-block story.
 test_case "Round 20 ACCEPTED OVER-BLOCK: git and the flag both mentioned inside a substitution's searched data, never executed" \
   'echo "$(grep -l --no-verify README.md; echo git)"' \
   2 \

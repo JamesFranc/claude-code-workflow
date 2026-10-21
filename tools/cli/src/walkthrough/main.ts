@@ -10,17 +10,22 @@ import {
 } from 'node:fs'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
-import { basename, dirname, join } from 'node:path'
+import { basename, dirname, extname, join } from 'node:path'
 import { setRequestedExitCode } from '../runtime-exit-code.ts'
 import { composeHtml, timeScenes } from './compose.ts'
+import { MacVoiceError, macVoiceProblem, narrateWithMacVoice } from './mac-voice.ts'
 import { prepareScript, type PreparedScene } from './prepare.ts'
 import { ScriptError, parseScript, type WalkthroughScript } from './script.ts'
 import { readingAlignment } from './silent.ts'
 import { DEFAULT_VOICE_ID, TtsError, narrate, type Alignment, type Narration } from './tts.ts'
 
+type Voice = 'elevenlabs' | 'mac'
+
 interface WalkthroughOutput {
   output: string
   narrated: boolean
+  // Which voice narrated the walkthrough, or null when it is silent.
+  voice: Voice | null
   durationSeconds: number
   bytes: number
   scenes: number
@@ -52,9 +57,10 @@ const AUDIO_ENCODING = ['-c:a', 'aac', '-b:a', '64k', '-ac', '1']
 // The index goes at the front, so the video starts playing before it has fully downloaded.
 const CONTAINER_FLAGS = ['-movflags', '+faststart']
 
-// Renders a walkthrough script to an MP4 (FLOW-390 architecture doc, "walkthrough"): narrated when
-// ELEVEN_LABS_API_KEY is set, otherwise silent with the narration as subtitles (FLOW-423).
-// Everything that can be checked without ElevenLabs is checked before the first narration.
+// Renders a walkthrough script to an MP4 (FLOW-390 architecture doc, "walkthrough"): narrated by
+// ElevenLabs when ELEVEN_LABS_API_KEY is set, else by the macOS voice WALKTHROUGH_MAC_VOICE names
+// (FLOW-432), else silent with the narration as subtitles (FLOW-423). Everything that can be
+// checked without voicing anything is checked before the first narration.
 export const runWalkthroughRender = async (
   scriptFile: string,
   outFile: string,
@@ -63,11 +69,20 @@ export const runWalkthroughRender = async (
   const env = options.env ?? process.env
   const stdout = options.stdout ?? ((chunk: string) => void process.stdout.write(chunk))
   const apiKey = env.ELEVEN_LABS_API_KEY || undefined
-  const narrated = apiKey !== undefined
+  const macVoice = env.WALKTHROUGH_MAC_VOICE || undefined
+  const voice: Voice | undefined =
+    apiKey !== undefined ? 'elevenlabs' : macVoice !== undefined ? 'mac' : undefined
+  const narrated = voice !== undefined
+  if (apiKey !== undefined && macVoice !== undefined) {
+    console.error(
+      'walkthrough: ELEVEN_LABS_API_KEY is set, so ElevenLabs voices the walkthrough and ' +
+        'WALKTHROUGH_MAC_VOICE is ignored.'
+    )
+  }
   if (!narrated) {
     console.error(
-      'walkthrough: ELEVEN_LABS_API_KEY is not set, so the walkthrough is rendered without a ' +
-        'voice, with the narration as subtitles.'
+      'walkthrough: neither ELEVEN_LABS_API_KEY nor WALKTHROUGH_MAC_VOICE is set, so the ' +
+        'walkthrough is rendered without a voice, with the narration as subtitles.'
     )
   }
   const ffmpegProblem = probeFfmpeg()
@@ -75,6 +90,14 @@ export const runWalkthroughRender = async (
     console.error(ffmpegProblem)
     setRequestedExitCode(MISSING_TOOL_EXIT)
     return
+  }
+  if (voice === 'mac' && macVoice !== undefined) {
+    const problem = macVoiceProblem(macVoice)
+    if (problem !== undefined) {
+      console.error(problem.message)
+      setRequestedExitCode(problem.exitCode)
+      return
+    }
   }
 
   const prepared = await prepareScriptFile(scriptFile)
@@ -91,9 +114,11 @@ export const runWalkthroughRender = async (
   }
 
   const narrations =
-    apiKey === undefined
-      ? []
-      : await narrateScenes(scenes, scriptFile, apiKey, env, options.apiBase)
+    apiKey !== undefined
+      ? await narrateScenes(scenes, scriptFile, apiKey, env, options.apiBase)
+      : macVoice !== undefined
+        ? narrateScenesWithMacVoice(scenes, scriptFile, macVoice)
+        : []
   if (narrations === undefined) {
     setRequestedExitCode(1)
     return
@@ -147,14 +172,18 @@ export const runWalkthroughRender = async (
     const output: WalkthroughOutput = {
       output: outFile,
       narrated,
+      voice: voice ?? null,
       durationSeconds: timed.reduce((sum, { duration }) => sum + duration, 0),
       bytes,
       scenes: scenes.length,
       synthesizedScenes: narrations.filter(({ cached }) => !cached).length,
       cachedScenes: narrations.filter(({ cached }) => cached).length,
-      ttsCharacters: scenes
-        .filter((_, i) => narrations[i]?.cached === false)
-        .reduce((sum, { narration }) => sum + narration.length, 0),
+      ttsCharacters:
+        voice === 'elevenlabs'
+          ? scenes
+              .filter((_, i) => narrations[i]?.cached === false)
+              .reduce((sum, { narration }) => sum + narration.length, 0)
+          : 0,
       overNotionLimit: bytes > NOTION_UPLOAD_LIMIT,
     }
     stdout(JSON.stringify(output) + '\n')
@@ -190,7 +219,7 @@ const narrateScenes = async (
   const tts = {
     apiKey,
     voiceId: env.ELEVEN_LABS_VOICE_ID || DEFAULT_VOICE_ID,
-    cacheDir: join(dirname(scriptFile), `${basename(scriptFile, '.json')}.cache`),
+    cacheDir: cacheDirOf(scriptFile),
     apiBase,
   }
 
@@ -209,14 +238,41 @@ const narrateScenes = async (
   }
 }
 
-// Copies each scene's audio into the composition, beside its alignment.
+// Voices every scene with a macOS voice, or reports why it cannot and returns undefined.
+const narrateScenesWithMacVoice = (
+  scenes: PreparedScene[],
+  scriptFile: string,
+  voice: string
+): Narration[] | undefined => {
+  const options = { voice, cacheDir: cacheDirOf(scriptFile) }
+
+  try {
+    return scenes.map((scene) =>
+      narrateWithMacVoice(
+        scene.narration,
+        scene.steps.map(({ cue }) => cue),
+        options
+      )
+    )
+  } catch (err) {
+    if (!(err instanceof MacVoiceError)) {
+      throw err
+    }
+
+    console.error(`${scriptFile}: ${err.message}`)
+
+    return undefined
+  }
+}
+
+// Copies each scene's audio into the composition, beside its alignment, keeping its format.
 const copyNarrations = (
   narrations: Narration[],
   workDir: string
 ): { audio: string; alignment: Alignment }[] => {
   mkdirSync(join(workDir, 'audio'))
   return narrations.map(({ audioFile, alignment }, i) => {
-    const audio = `audio/scene-${i}.mp3`
+    const audio = `audio/scene-${i}${extname(audioFile)}`
     copyFileSync(audioFile, join(workDir, audio))
     return { audio, alignment }
   })
@@ -264,3 +320,7 @@ const hyperframes = (args: string[]): boolean => {
   }
   return true
 }
+
+// Narration audio is cached beside the script, whichever voice speaks it.
+const cacheDirOf = (scriptFile: string): string =>
+  join(dirname(scriptFile), `${basename(scriptFile, '.json')}.cache`)

@@ -206,6 +206,7 @@ const SPECIAL_RENDER_CATEGORIES = new Set([
   'entry-cap',
   'question-flag',
   'command-example',
+  'skill-name',
 ])
 
 const expectedRenderedLine = (f: {
@@ -267,6 +268,8 @@ const withAllCategoriesFixtureRoot = (run: (root: string) => void): void => {
       join(root, 'skills', 'command-example.md'),
       '```bash\nmytool show --id <id> --json\n```\n'
     )
+    mkdirSync(join(root, 'skills', 'bad-name'))
+    writeFileSync(join(root, 'skills', 'bad-name', 'SKILL.md'), '---\nname: Bad Name\n---\n')
 
     run(root)
   } finally {
@@ -319,6 +322,7 @@ test(
         (f) => f.file === 'skills/command-example.md'
       )
       assert.equal(inCommandExampleFixture.length, 1)
+      assert.equal(byCategory('skill-name').length, 1)
 
       for (const f of output.findings) {
         assert.ok(

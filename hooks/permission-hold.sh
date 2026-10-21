@@ -266,7 +266,7 @@ while [[ -f "$STATE_FILE" ]] && (( $(date +%s) < DEADLINE )); do
   sleep "$POLL_INTERVAL_S"
   # The state file is also the stop signal: the clearing hook deletes it when the terminal answered
   # first, and this re-check is what ends the poll without any pid handling (pattern-kills are
-  # blocked in this repo by hooks/process-kill-guard.sh).
+  # blocked in this repo by hooks/dangerous-command-guard.sh).
   [[ -f "$STATE_FILE" ]] || exit 0
   # -a: a rejection note can carry a NUL byte (JSON allows escaping one into a string, and
   # Node's UTF-8 encoder never strips it), and without -a that makes grep treat the line as

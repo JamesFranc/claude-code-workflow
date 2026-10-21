@@ -1,8 +1,8 @@
-import { execFileSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { tryResolveRawSessionId } from '../dashboard/session-id.ts'
+import { parseTeammateArgv, readPsOutput } from '../process-table.ts'
 import {
   atomicWrite,
   readClassified,
@@ -177,9 +177,7 @@ export const formatTeammateDeath = (death: TeammateStatus): string =>
   `unfinished, respawn it — if the respawn dies too, the client needs a restart (usually after an ` +
   `update).`
 
-// Exported for the argv test: the lead's own CLI calls also carry `--agent-id` (e.g.
-// `review-ledger senior shutdown --agent-id <id>`), so only a line carrying `--agent-id`,
-// `--agent-name` and `--team-name` all three — in any order — counts as a teammate.
+// Exported for the argv test.
 export const parseAgentProcesses = (psOutput: string): RunningAgent[] =>
   psOutput.split('\n').flatMap((line) => {
     const pidMatch = /^\s*(\d+)\s+(.*)$/.exec(line)
@@ -188,31 +186,17 @@ export const parseAgentProcesses = (psOutput: string): RunningAgent[] =>
     }
 
     const [, pid, command] = pidMatch
-    const agentId = /--agent-id\s+(\S+)/.exec(command)?.[1]
-    const teamName = /--team-name\s+(\S+)/.exec(command)?.[1]
-    const hasAgentName = /--agent-name\s+\S+/.test(command)
-    if (agentId === undefined || teamName === undefined || !hasAgentName) {
+    const teammate = parseTeammateArgv(command)
+    if (teammate === undefined) {
       return []
     }
 
-    return [{ pid: Number(pid), agentId, teamName }]
+    return [{ pid: Number(pid), agentId: teammate.agentId, teamName: teammate.teamName }]
   })
 
-const PS_TIMEOUT_MS = 10_000
-const PS_MAX_BUFFER_BYTES = 64 * 1024 * 1024
-
 const runningAgents = (): RunningAgent[] | null => {
-  try {
-    return parseAgentProcesses(
-      execFileSync('ps', ['-axww', '-o', 'pid=,command='], {
-        encoding: 'utf8',
-        timeout: PS_TIMEOUT_MS,
-        maxBuffer: PS_MAX_BUFFER_BYTES,
-      })
-    )
-  } catch {
-    return null
-  }
+  const psOutput = readPsOutput('pid=,command=')
+  return psOutput === null ? null : parseAgentProcesses(psOutput)
 }
 
 interface TeamConfig {

@@ -3,6 +3,7 @@ import { dashboardAvailable, invokeDashboard } from './invoke.ts'
 import { resolveRawSessionId, tryResolveRawSessionId } from './session-id.ts'
 import { loadState, refuseCorruptState, saveState, stateFileIsCorrupt } from './state.ts'
 import { reproducesDeclarationGrammar } from './item.ts'
+import { runRefreshReturn } from './return-link.ts'
 import {
   loadRegistry,
   registryLeaves,
@@ -288,6 +289,9 @@ export const runEnter = (
     openItemIds,
     parentId: existing?.parentId ?? localParentId,
   })
+  if (key === undefined) {
+    runRefreshReturn(undefined, session)
+  }
 }
 
 /**

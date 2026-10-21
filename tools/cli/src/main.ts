@@ -14,6 +14,7 @@ import { publishSnapshotCommand } from './commands/publish-snapshot.ts'
 import { renderDiagramsCommand } from './commands/render-diagrams.ts'
 import { renovatePrMonitorCommand } from './commands/renovate-pr-monitor.ts'
 import { reviewLedgerRoutes } from './commands/review-ledger.ts'
+import { snapshotReleaseNotesCommand } from './commands/snapshot-release-notes.ts'
 import { validateMermaidCommand } from './commands/validate-mermaid.ts'
 import { walkthroughRoutes } from './commands/walkthrough.ts'
 import { workflowStateRoutes } from './commands/workflow-state.ts'
@@ -38,6 +39,7 @@ const routes = buildRouteMap({
     'render-diagrams': renderDiagramsCommand,
     'renovate-pr-monitor': renovatePrMonitorCommand,
     'review-ledger': reviewLedgerRoutes,
+    'snapshot-release-notes': snapshotReleaseNotesCommand,
     'validate-mermaid': validateMermaidCommand,
     walkthrough: walkthroughRoutes,
     'workflow-state': workflowStateRoutes,

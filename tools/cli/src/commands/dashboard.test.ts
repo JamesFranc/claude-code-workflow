@@ -14,7 +14,7 @@ import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { loadState, saveState, stateFilePath } from '../dashboard/state.ts'
-import { upsertRegistryNode } from '../dashboard/registry.ts'
+import { registryFilePath, upsertRegistryNode } from '../dashboard/registry.ts'
 import { stderrBeyondNodeWarnings } from '../testing/subprocess-stderr.ts'
 
 // ---------------------------------------------------------------------------
@@ -570,6 +570,162 @@ test('CLI: dashboard item show rejects --session, which is not a flag on this ro
   )
   assert.equal(stdout, '', 'nothing printed on stdout')
   assertCleanRefusal(stderr)
+})
+
+// FLOW-425: a teammate's heartbeat reaches its lead's node. The CLI finds the lead by walking up the
+// process tree to a teammate process (dashboard/lead.ts), so these run the real CLI under a parent
+// whose own command line carries the teammate flags.
+const LEAD_SESSION = 'flow425-lead-session'
+
+const runCliAsTeammate = (
+  args: string[],
+  env: NodeJS.ProcessEnv
+): { stdout: string; stderr: string; status: number | null } => {
+  const result = spawnSync(
+    'bash',
+    [
+      '-c',
+      '"$1" --experimental-transform-types "$2" "${@:3:$#-10}"; exit $?',
+      'fake-claude',
+      process.execPath,
+      mainTsPath,
+      ...args,
+      '--agent-id',
+      'impl@team-x',
+      '--agent-name',
+      'impl',
+      '--team-name',
+      'team-x',
+      '--parent-session-id',
+      LEAD_SESSION,
+    ],
+    {
+      encoding: 'utf8',
+      env: {
+        ...process.env,
+        CLAUDE_CODE_SESSION_ID: 'flow425-teammate-session',
+        NODE_NO_WARNINGS: '1',
+        AI_WORKFLOW_APP_BIN: NONEXISTENT_BIN,
+        ...env,
+      },
+    }
+  )
+  return { stdout: result.stdout, stderr: result.stderr, status: result.status }
+}
+
+test('CLI FLOW-425: a teammate with no node of its own beats its lead’s live leaf', () => {
+  upsertRegistryNode(LEAD_SESSION, {
+    internalId: 'lead-node-1',
+    externalId: `${LEAD_SESSION}_aaaa1111`,
+    key: null,
+    parentId: null,
+  })
+
+  const { status, stdout, stderr } = runCliAsTeammate(['dashboard', 'session', 'heartbeat'], {
+    AI_WORKFLOW_APP_BIN: writeBranchingStub(tmpDir, '', ''),
+  })
+
+  assert.equal(status, 0)
+  assert.equal(stdout, '')
+  assert.equal(stderr, '')
+  assert.deepEqual(readCalls(tmpDir), ['session heartbeat --id lead-node-1'])
+})
+
+test('CLI FLOW-425: a teammate with its own node beats it and its lead’s leaf', () => {
+  upsertRegistryNode('flow425-teammate-session', {
+    internalId: 'own-node-1',
+    externalId: 'flow425-teammate-session_bbbb2222',
+    key: null,
+    parentId: null,
+  })
+  upsertRegistryNode(LEAD_SESSION, {
+    internalId: 'lead-node-1',
+    externalId: `${LEAD_SESSION}_aaaa1111`,
+    key: null,
+    parentId: null,
+  })
+
+  const { status, stdout, stderr } = runCliAsTeammate(['dashboard', 'session', 'heartbeat'], {
+    AI_WORKFLOW_APP_BIN: writeBranchingStub(tmpDir, '', ''),
+  })
+
+  assert.equal(status, 0)
+  assert.equal(stdout, '')
+  assert.equal(stderr, '')
+  assert.deepEqual(readCalls(tmpDir), [
+    'session heartbeat --id own-node-1',
+    'session heartbeat --id lead-node-1',
+  ])
+})
+
+test('CLI FLOW-425: an explicit --session naming the teammate’s own node still beats it', () => {
+  upsertRegistryNode('flow425-teammate-session', {
+    internalId: 'own-node-1',
+    externalId: 'flow425-teammate-session_bbbb2222',
+    key: null,
+    parentId: null,
+  })
+  upsertRegistryNode(LEAD_SESSION, {
+    internalId: 'lead-node-1',
+    externalId: `${LEAD_SESSION}_aaaa1111`,
+    key: null,
+    parentId: null,
+  })
+
+  const { status, stdout, stderr } = runCliAsTeammate(
+    ['dashboard', 'session', 'heartbeat', '--session', 'own-node-1'],
+    { AI_WORKFLOW_APP_BIN: writeBranchingStub(tmpDir, '', '') }
+  )
+
+  assert.equal(status, 0)
+  assert.equal(stdout, '')
+  assert.equal(stderr, '')
+  assert.deepEqual(readCalls(tmpDir), [
+    'session heartbeat --id own-node-1',
+    'session heartbeat --id lead-node-1',
+  ])
+})
+
+test('CLI FLOW-425: an unreadable process table is reported and the caller’s own beat still goes', () => {
+  registerRootNode(rawId)
+  const fakeBin = join(tmpDir, 'fake-bin')
+  mkdirSync(fakeBin)
+  writeFileSync(join(fakeBin, 'ps'), '#!/bin/sh\nexit 1\n')
+  chmodSync(join(fakeBin, 'ps'), 0o755)
+
+  const { status, stdout, stderr } = runCli(['dashboard', 'session', 'heartbeat'], {
+    CLAUDE_CODE_SESSION_ID: rawId,
+    AI_WORKFLOW_APP_BIN: writeBranchingStub(tmpDir, '', ''),
+    NODE_NO_WARNINGS: '1',
+    PATH: `${fakeBin}:${process.env.PATH}`,
+  })
+
+  assert.deepEqual(readCalls(tmpDir), [`session heartbeat --id ${rawId}`])
+  assert.equal(status, 1)
+  assert.equal(stdout, '')
+  assert.equal(stderr, "could not read the process table to find this session's lead\n")
+})
+
+test('CLI FLOW-425: an unreadable lead registry is reported and the teammate’s own beat still goes', () => {
+  upsertRegistryNode('flow425-teammate-session', {
+    internalId: 'own-node-1',
+    externalId: 'flow425-teammate-session_bbbb2222',
+    key: null,
+    parentId: null,
+  })
+  mkdirSync(registryFilePath(LEAD_SESSION), { recursive: true })
+
+  const { status, stdout, stderr } = runCliAsTeammate(['dashboard', 'session', 'heartbeat'], {
+    AI_WORKFLOW_APP_BIN: writeBranchingStub(tmpDir, '', ''),
+  })
+
+  assert.deepEqual(readCalls(tmpDir), ['session heartbeat --id own-node-1'])
+  assert.equal(status, 1)
+  assert.equal(stdout, '')
+  assert.equal(
+    stderr,
+    `dashboard registry ${registryFilePath(LEAD_SESSION)} exists but could not be read (EISDIR)\n`
+  )
 })
 
 test('CLI: dashboard session status --json — unavailable branch, deterministic (nonexistent bin)', () => {
@@ -2052,4 +2208,46 @@ test('CLI: leave --root proceeds when the only defect in the state file is defer
     `the session is ended, got calls: ${JSON.stringify(calls)}`
   )
   assert.equal(status, 0, `exits clean, stderr was: ${stderrBeyondNodeWarnings(stderr)}`)
+})
+
+test('CLI: dashboard session refresh-return links the root, reuses the recorded --cwd, and prints nothing', () => {
+  const stubBin = writeBranchingStub(tmpDir, '[]', '')
+  registerRootNode(rawId)
+  const env = {
+    AI_WORKFLOW_APP_BIN: stubBin,
+    CLAUDE_CODE_SESSION_ID: rawId,
+    ITERM_SESSION_ID: 'w1t2p3:CAFE-F00D',
+  }
+
+  const first = runCli(['dashboard', 'session', 'refresh-return', '--cwd', '/launch/here'], env)
+  const second = runCli(['dashboard', 'session', 'refresh-return'], env)
+
+  const url = `agent-session://iterm/CAFE-F00D?claude=${rawId}&cwd=%2Flaunch%2Fhere`
+  const expected = `link add --session ${rawId} --kind return --label iTerm --url ${url}`
+  assert.deepEqual(readCalls(tmpDir), [expected, expected])
+  for (const run of [first, second]) {
+    assert.equal(run.status, 0, stderrBeyondNodeWarnings(run.stderr))
+    assert.equal(run.stdout, '')
+    assert.equal(stderrBeyondNodeWarnings(run.stderr), '')
+  }
+})
+
+test('CLI: dashboard session refresh-return --session targets that session’s root, not the env session’s', () => {
+  const stubBin = writeBranchingStub(tmpDir, '[]', '')
+  const target = `${rawId}-target`
+  registerRootNode(target)
+
+  const run = runCli(
+    ['dashboard', 'session', 'refresh-return', '--session', target, '--cwd', '/d'],
+    {
+      AI_WORKFLOW_APP_BIN: stubBin,
+      CLAUDE_CODE_SESSION_ID: `${rawId}-different`,
+      ITERM_SESSION_ID: 'w1t2p3:CAFE-F00D',
+    }
+  )
+
+  assert.equal(run.status, 0, stderrBeyondNodeWarnings(run.stderr))
+  assert.deepEqual(readCalls(tmpDir), [
+    `link add --session ${target} --kind return --label iTerm --url agent-session://iterm/CAFE-F00D?claude=${target}&cwd=%2Fd`,
+  ])
 })

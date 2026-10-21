@@ -1,5 +1,5 @@
 ---
-name: Architecture
+name: architecture
 description: Use after JTBD/PRD is complete — designs the technical solution at a high level. Identifies repos, data structures, API contracts, diagrams, and breaks work into story tickets. Triggers after a PRD is validated or when the user wants to design how something should be built.
 ---
 

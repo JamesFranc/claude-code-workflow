@@ -1,5 +1,5 @@
 ---
-name: Process Improvement Notes
+name: process-improvement-notes
 description: Track process observations during any workflow — seed notes at the start, check in after milestones, run a retrospective at the end, and consolidate an epic's or standalone story's notes into a promotion-ready digest at whole-unit close. Standalone — usable outside Team Dispatch.
 ---
 

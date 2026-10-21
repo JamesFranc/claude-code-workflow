@@ -1,5 +1,5 @@
 ---
-name: Board
+name: board
 description: The dashboard protocol every workflow shares — enter a session node, post questions and approvals, reconcile the user's answers, and never go quiet without posting first. Invoked by name by the workflow skills and by any other skill that needs the board. Triggers when a skill is about to take its first board action, or needs the question / approval / reconcile rules.
 ---
 

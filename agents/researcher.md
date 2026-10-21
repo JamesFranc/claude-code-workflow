@@ -58,6 +58,10 @@ Rules:
 3. **Stop when you have enough.** You don't need to map the whole module — just answer the question with supporting evidence.
 4. **Write the summary.** Follow the response contract above.
 
+## Shell Commands
+
+A guard hook blocks bash the harness would stop to ask about even in bypass mode, so write each command plainly. Delete by literal path, one absolute or worktree-relative path per operand, in a call of its own — never through a variable, a glob, `$(…)`, `bash -c`, `xargs` or `find`. Never write a heredoc into a file, `tee` or `sed -i`, and never run a script through a heredoc or `bash -c`; keep each probe to a single command, and ask the team lead for a check that needs a script or a file. Never set or export a variable that a later deletion or kill in the same call depends on, and never export `HOME`; to give one command its own `HOME`, prefix it (`HOME="$(mktemp -d)" bash "hooks/test-<name>.sh"`). Find a pid in one call and kill it by number in the next rather than `kill $(…)`. When a command is blocked, do not re-issue, split, or script around it: use the alternative its message names, or ask the team lead.
+
 ## Example
 
 **Bad response** (dump of tool calls, verbose, no citations):

@@ -22,7 +22,7 @@ it creates the node it is asked for. What follows is the judgement it is trustin
 
 - **The root** is whatever the entry skill entered first with **no `--key`** — an epic (JTBD, multi-story) or a single ticket (Quick Change, Systematic Debugging, single-ticket JTBD).
 - **A ticket gets its own child node only under a real epic-root node** (a multi-story epic whose epic was entered as the root). A ticket that is itself the root — or that merely belongs to a Jira epic with no epic-root *node* above it this session — re-enters the root (no `--key`). Jira epic membership is never by itself the trigger.
-- **A PR gets no node of its own.** PR Lifecycle / PR Feedback re-enter the **ticket node** with a PR phase. A distinct PR node (`--key "<branch>"`) is created **only** when one ticket produces multiple PRs (e.g. a multi-repo story).
+- **A PR gets no node of its own.** PR Lifecycle / PR Feedback re-enter the **ticket node** with a PR phase. A distinct PR node (`--key "<branch>"`) is created **only** when one ticket produces multiple PRs (e.g. a multi-repo story), and it ends when its PR merges (PR Lifecycle's `MERGED` handler), with Team Cleanup ending any that remain.
 - **A root is released when the unit of work it names is done — a standalone ticket at its own
   close, or an epic once its last story closes.** Release it (`dashboard session leave --root`)
   before entering a new one — keying new, unrelated work under it instead is how a `DEV-3866` branch

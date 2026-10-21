@@ -66,3 +66,72 @@ test('CLI: check-tools reports elevenlabs unconfigured when ELEVEN_LABS_API_KEY 
     }) + '\n'
   )
 })
+
+test('CLI: check-tools reports mac-voice configured when WALKTHROUGH_MAC_VOICE is set, and unconfigured when empty', () => {
+  const checkMacVoice = (voice: string) =>
+    spawnSync(
+      process.execPath,
+      ['--experimental-transform-types', mainTsPath, 'check-tools', '--require', 'mac-voice'],
+      {
+        encoding: 'utf8',
+        timeout: 60_000,
+        env: { PATH: process.env.PATH, WALKTHROUGH_MAC_VOICE: voice },
+      }
+    )
+  const macUse = 'A macOS voice narrating walkthrough videos'
+  const macOnFailure =
+    'STOP and tell the user a macOS voice is configured but walkthrough render cannot voice the narration with it. Do NOT fall back.'
+
+  const configured = checkMacVoice('Samantha')
+  assert.equal(configured.status, 0)
+  assert.equal(
+    stderrBeyondNodeWarnings(configured.stderr),
+    '✓ mac-voice: configured — A macOS voice narrating walkthrough videos'
+  )
+  assert.equal(
+    configured.stdout,
+    JSON.stringify({
+      results: [
+        {
+          tool: 'mac-voice',
+          state: 'configured',
+          use: macUse,
+          onFailure: macOnFailure,
+          env: {
+            present: ['WALKTHROUGH_MAC_VOICE'],
+            missing: [],
+            accepted: ['WALKTHROUGH_MAC_VOICE'],
+          },
+        },
+      ],
+      anyFailed: false,
+    }) + '\n'
+  )
+
+  const unconfigured = checkMacVoice('')
+  assert.equal(unconfigured.status, 0)
+  assert.equal(
+    stderrBeyondNodeWarnings(unconfigured.stderr),
+    '· mac-voice: unconfigured — env vars not set: WALKTHROUGH_MAC_VOICE'
+  )
+  assert.equal(
+    unconfigured.stdout,
+    JSON.stringify({
+      results: [
+        {
+          tool: 'mac-voice',
+          state: 'unconfigured',
+          use: macUse,
+          onFailure: macOnFailure,
+          env: {
+            present: [],
+            missing: ['WALKTHROUGH_MAC_VOICE'],
+            accepted: ['WALKTHROUGH_MAC_VOICE'],
+          },
+          reason: 'env vars not set: WALKTHROUGH_MAC_VOICE',
+        },
+      ],
+      anyFailed: false,
+    }) + '\n'
+  )
+})

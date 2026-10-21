@@ -8,6 +8,7 @@ import { findHeadingCitationFindings } from './heading-citations.ts'
 import { findPathCitationFindings } from './path-citations.ts'
 import { findQuestionFlagFindings } from './question-flags.ts'
 import { findCommandExampleFindings } from './command-examples.ts'
+import { findSkillNameFindings } from './skill-name.ts'
 import { escapeRegExp } from './escape-regexp.ts'
 
 export interface Finding {
@@ -25,6 +26,7 @@ export interface Finding {
     | 'entry-cap'
     | 'question-flag'
     | 'command-example'
+    | 'skill-name'
   matched: string
   fix: string
 }
@@ -82,6 +84,7 @@ const scanFile = (root: string, relPath: string, toolNames: readonly string[]): 
   const entryCapFindings = findEntryCapFindings(content, relPath)
   const questionFlagFindings = findQuestionFlagFindings(content, relPath)
   const commandExampleFindings = findCommandExampleFindings(content, relPath, toolNames)
+  const skillNameFindings = findSkillNameFindings(content, relPath)
   return [
     ...lineFindings,
     ...fenceFindings,
@@ -90,6 +93,7 @@ const scanFile = (root: string, relPath: string, toolNames: readonly string[]): 
     ...entryCapFindings,
     ...questionFlagFindings,
     ...commandExampleFindings,
+    ...skillNameFindings,
   ]
 }
 
@@ -140,7 +144,8 @@ const formatFinding = (f: Finding): string => {
     f.category === 'path-heading-citation' ||
     f.category === 'entry-cap' ||
     f.category === 'question-flag' ||
-    f.category === 'command-example'
+    f.category === 'command-example' ||
+    f.category === 'skill-name'
   ) {
     return `${f.file}:${f.line}:${f.col}  ${f.category}  '${f.matched}' → ${f.fix}`
   }

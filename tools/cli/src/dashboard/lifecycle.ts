@@ -18,24 +18,60 @@ import {
 import { runItemWithdraw } from './item.ts'
 import { setRequestedExitCode } from '../runtime-exit-code.ts'
 import { ticketNodes } from './key.ts'
+import { resolveLeadSessionId } from './lead.ts'
 
-// Heartbeat every live leaf, not just the resolved one — the backend's touchAncestors bumps the
-// whole chain up from each, so a `--key`-targeted sibling stays alive too. Falls back to the
-// single resolved session when the registry is empty (before first `enter`, or an explicit
-// internal --session), matching the prior single-target behavior in that case.
+// Heartbeat every live leaf of the caller's session and, when the caller is a teammate, every live
+// leaf of its lead's session — the backend's touchAncestors bumps the whole chain up from each, so a
+// `--key`-targeted sibling stays alive too. When the caller has no leaf, the single resolved session
+// is beaten instead (before first `enter`, or an explicit internal --session); a resolved session
+// that is only the bare session id is dropped when the lead has leaves to beat.
 export const runHeartbeat = (session?: string): void => {
-  if (!dashboardAvailable()) return
+  if (!dashboardAvailable()) {
+    return
+  }
+
   let targets: string[]
   try {
     const rawId = resolveRawSessionId(session)
-    const leaves = registryLeaves(loadRegistry(rawId))
-    targets = leaves.length > 0 ? leaves.map((l) => l.internalId) : [resolveSessionId(session)]
+    const ownLeaves = registryLeaves(loadRegistry(rawId)).map((l) => l.internalId)
+    const leadLeaves = leadLeafIds(rawId)
+    const resolved = ownLeaves.length === 0 ? resolveSessionId(session) : undefined
+    const resolvedNamesNoNode = resolved === tryResolveRawSessionId() && leadLeaves.length > 0
+    const fallback = resolved === undefined || resolvedNamesNoNode ? [] : [resolved]
+    targets = [...new Set([...ownLeaves, ...fallback, ...leadLeaves])]
   } catch (err) {
     process.stderr.write(`${err instanceof Error ? err.message : String(err)}\n`)
     setRequestedExitCode(1)
     return
   }
-  for (const id of targets) invokeDashboard(['session', 'heartbeat', '--id', id])
+
+  for (const id of targets) {
+    invokeDashboard(['session', 'heartbeat', '--id', id])
+  }
+}
+
+// The lead's live leaves when this session is a teammate, else none. A lead that cannot be found
+// because the process table cannot be read, or a lead registry that cannot be read, is reported and
+// skipped, so it never costs the teammate its own beat.
+const leadLeafIds = (rawId: string): string[] => {
+  const lead = resolveLeadSessionId()
+  if (lead === null) {
+    process.stderr.write(`could not read the process table to find this session's lead\n`)
+    setRequestedExitCode(1)
+    return []
+  }
+
+  if (lead === undefined || lead === rawId) {
+    return []
+  }
+
+  try {
+    return registryLeaves(loadRegistry(lead)).map((l) => l.internalId)
+  } catch (err) {
+    process.stderr.write(`${err instanceof Error ? err.message : String(err)}\n`)
+    setRequestedExitCode(1)
+    return []
+  }
 }
 
 /**

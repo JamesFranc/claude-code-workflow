@@ -1,5 +1,5 @@
 ---
-name: Memory Review
+name: memory-review
 description: Curate the persistent memory store at the end of a project — capture new durable learnings, reconcile staleness, cull dead weight, and promote story-specific notes into permanent generalized facts — and route the user's review standards to the review-standards file the senior engineer reads, creating that file when it is absent. Two tiers — light on every story close, heavy when the whole unit of work finishes. Invoked by Team Cleanup; also standalone ("review my memories", "update memories for this project", "record that as a review standard"). Triggers on end-of-project memory maintenance, on-demand memory review requests, and capturing a review standard when one surfaces.
 ---
 

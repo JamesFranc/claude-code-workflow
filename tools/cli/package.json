@@ -9,7 +9,7 @@
     "test": "DASHBOARD_INVOKE_TIMEOUT_MS=30000 node --experimental-transform-types --test-concurrency=${TEST_CONCURRENCY:-$(node --experimental-transform-types src/test-concurrency/print-cap.ts)} --test 'src/**/*.test.ts'"
   },
   "dependencies": {
-    "@iconify-json/lucide": "1.2.139",
+    "@iconify-json/lucide": "1.2.140",
     "@stricli/core": "^1.1.0",
     "@terrastruct/d2": "0.1.33",
     "gsap": "3.15.0",

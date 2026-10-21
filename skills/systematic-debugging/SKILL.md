@@ -1,5 +1,5 @@
 ---
-name: Systematic Debugging
+name: systematic-debugging
 description: Use when encountering any bug, test failure, or unexpected behavior, before proposing fixes. Investigates root cause, decides whether a code change is needed, writes a bug summary doc, and hands off to Team Dispatch for implementation, review, PR lifecycle, and cleanup.
 ---
 

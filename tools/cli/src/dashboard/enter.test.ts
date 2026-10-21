@@ -223,6 +223,7 @@ let origSessionId: string | undefined
 let rawId: string
 let homeDir: string
 let origHome: string | undefined
+let origIterm: string | undefined
 
 // stateFilePath/registryFilePath/workflowStateFilePath resolve through the durable store, which is
 // homedir()-relative — override HOME so these tests never touch the real ~/.claude/workflow-state.
@@ -240,10 +241,18 @@ beforeEach(() => {
   homeDir = mkdtempSync(join(tmpdir(), 'enter-test-home-'))
   origHome = process.env.HOME
   process.env.HOME = homeDir
+  // Pinned so a run inside iTerm2 cannot add return-link calls to every call-count assertion.
+  origIterm = process.env.ITERM_SESSION_ID
+  delete process.env.ITERM_SESSION_ID
   resetExitCode()
 })
 
 afterEach(() => {
+  if (origIterm === undefined) {
+    delete process.env.ITERM_SESSION_ID
+  } else {
+    process.env.ITERM_SESSION_ID = origIterm
+  }
   if (origBin === undefined) delete process.env.AI_WORKFLOW_APP_BIN
   else process.env.AI_WORKFLOW_APP_BIN = origBin
   if (origSessionId === undefined) delete process.env.CLAUDE_CODE_SESSION_ID
@@ -1407,4 +1416,41 @@ test('runEnter: --parent-session refuses its own session’s raw id (would paren
     [{ internalId: 'self-root', externalId: `${rawId}_root`, key: null, parentId: null }],
     'only the preset root remains, unchanged'
   )
+})
+
+test('runEnter: a keyless enter refreshes the return link on the root, a keyed enter does not', () => {
+  process.env.AI_WORKFLOW_APP_BIN = writeStub(tmpDir, 0)
+  process.env.ITERM_SESSION_ID = 'w1t0p0:AAAA-BBBB'
+
+  runEnter('child', 'impl', 'Child')
+  assert.ok(!readCalls(tmpDir).some((c) => c.startsWith('link add')), 'keyed enter emits no link')
+
+  runEnter(undefined, 'prd', 'Root')
+  const rootId = registryRoot(loadRegistry(rawId))!.internalId
+  const linkCalls = readCalls(tmpDir).filter((c) => c.startsWith('link add'))
+  const query = new URLSearchParams({ claude: rawId, cwd: process.cwd() }).toString()
+  assert.deepEqual(linkCalls, [
+    `link add --session ${rootId} --kind return --label iTerm --url agent-session://iterm/AAAA-BBBB?${query}`,
+  ])
+})
+
+test('runEnter: a keyless enter with --session refreshes that session’s root, not the env session’s', () => {
+  process.env.AI_WORKFLOW_APP_BIN = writeStub(tmpDir, 0)
+  process.env.ITERM_SESSION_ID = 'w1t0p0:AAAA-BBBB'
+  const other = `${rawId}-explicit`
+
+  for (const envId of [undefined, `${rawId}-different`]) {
+    if (envId === undefined) {
+      delete process.env.CLAUDE_CODE_SESSION_ID
+    } else {
+      process.env.CLAUDE_CODE_SESSION_ID = envId
+    }
+    runEnter(undefined, 'prd', 'Root', undefined, other)
+  }
+
+  const rootId = registryRoot(loadRegistry(other))!.internalId
+  const linkCalls = readCalls(tmpDir).filter((c) => c.startsWith('link add'))
+  const query = new URLSearchParams({ claude: other, cwd: process.cwd() }).toString()
+  const expected = `link add --session ${rootId} --kind return --label iTerm --url agent-session://iterm/AAAA-BBBB?${query}`
+  assert.deepEqual(linkCalls, [expected, expected])
 })

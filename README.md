@@ -59,6 +59,7 @@ None of these is required. Each one changes what the workflow does when it is pr
 | Jira (an Atlassian MCP server, plus any `JIRA_*` or `ATLASSIAN_*` variable) | Work is tracked on a ticket, and branches are named after it | No ticket; branches are named from a short description |
 | Notion (a Notion MCP server, plus `NOTION_PAGE_URL`) | Design docs are published to Notion | Design docs stay as local files |
 | ElevenLabs (`ELEVEN_LABS_API_KEY`) | Each architecture doc's walkthrough video is narrated | The video is silent, with the narration as subtitles |
+| A macOS voice (`WALKTHROUGH_MAC_VOICE`) | The walkthrough video is narrated by that voice, when ElevenLabs isn't configured | With `ELEVEN_LABS_API_KEY` also unset, the video is silent, with the narration as subtitles |
 | The board (`ai-workflow-app`) | Questions and approvals go to the board | The workflow asks in the terminal |
 | CodeRabbit | Its review is part of the pull request loop | Only the agent review runs |
 
@@ -89,8 +90,9 @@ These are Claude Code's own settings. The workflow depends on what they do.
 |---|---|
 | `JIRA_*`, `ATLASSIAN_*` | Any variable whose name starts with either prefix and whose value is not blank turns Jira on. What the value says doesn't matter. Unset: no tickets. |
 | `NOTION_PAGE_URL` | The Notion page design docs are published under. Unset: design docs stay as local files. |
-| `ELEVEN_LABS_API_KEY` | ElevenLabs API key used to narrate an architecture doc's walkthrough video. Unset: the video is silent, with the narration as subtitles. |
+| `ELEVEN_LABS_API_KEY` | ElevenLabs API key used to narrate an architecture doc's walkthrough video. Unset: a macOS voice narrates it if `WALKTHROUGH_MAC_VOICE` is set; otherwise the video is silent, with the narration as subtitles. |
 | `ELEVEN_LABS_VOICE_ID` | The ElevenLabs voice for that narration. Default: the voice the CLI pins. |
+| `WALKTHROUGH_MAC_VOICE` | A macOS voice, named as `say -v '?'` lists it, that narrates the walkthrough video when `ELEVEN_LABS_API_KEY` is unset. Unset (and `ELEVEN_LABS_API_KEY` unset too): the video is silent, with the narration as subtitles. Premium voices (System Settings → Accessibility → Read & Speak → System voice → Manage Voices…; Spoken Content before macOS 26) sound far better than the built-in ones. |
 | `AI_WORKFLOW_APP_BIN` | Path to the board's `ai-workflow-app` binary. Default: `ai-workflow-app` found on `PATH`. If the path you give does not exist, the board is treated as absent; `PATH` is not searched instead. |
 | `PERMISSION_HOLD_DEADLINE_S` | When a tool call needs permission, the prompt is also posted to the board, and whichever answer comes first wins. This is how many seconds the board side waits. Default: `570`. A value that is not a whole number below `600` uses the default. |
 | `PERMISSION_POLL_INTERVAL_S` | Seconds between checks for the board's answer to that prompt. Default: `3`. |
@@ -103,7 +105,7 @@ take turns running tests. It reads these:
 | Variable | What it does |
 |---|---|
 | `TEST_LOCK_ROOT` | The directory the lock is kept under, in a subdirectory private to you. Default: `/tmp`. |
-| `TEST_LOCK_BEAT_SECONDS` | Seconds between the heartbeats it sends the board for the agent's session while its tests wait or run. Default: `300`. |
+| `TEST_LOCK_BEAT_SECONDS` | Seconds between the heartbeats it sends the board for the agent's session (and a teammate's lead's) while its tests wait or run. Default: `300`. |
 | `TEST_LOCK_DASHBOARD` | The `dashboard` command it sends those heartbeats with. Default: the plugin's own `bin/dashboard`. |
 | `TEST_LOCK_HELD` | `test-lock` sets it to `1` for the command it runs, so a `test-lock` inside that command does not wait on itself. Any non-empty value, even one that is only spaces, skips the lock, so leave it unset. |
 

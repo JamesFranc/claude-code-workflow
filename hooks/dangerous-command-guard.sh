@@ -1,10 +1,16 @@
 #!/bin/bash
-# Pre-tool hook: Blocks blind pattern-kill sweeps (pkill / killall).
+# Pre-tool hook: blocks bash the harness would stop to ask about, and pattern kills.
 #
-# Pattern kills match processes by name or command line, so they over-match:
-# they can reap another session's processes or unrelated tools, and they
-# destroy the diagnostic evidence needed to find the real problem. Targeted
-# `kill <pid>` stays allowed.
+# The harness's own danger check asks the user, even in bypass mode, whenever it cannot tell what a
+# command will do. This hook blocks those shapes first, each with a message naming the alternative:
+#   - pattern kills (pkill / killall), which over-match other sessions' processes and destroy the
+#     evidence needed to find the real problem; a targeted `kill <pid>` stays allowed;
+#   - a heredoc fed to an interpreter, and a heredoc written to a file (cat or tee);
+#   - a deletion whose target is only known when it runs: an rm or rmdir operand holding a
+#     variable, a glob or a substitution, a critical path (/ ~ . ..), or an rm run through
+#     $(...), bash -c, xargs or find.
+# A literal-path delete, `cat >&2 <<EOF`, `--body-file -` and the
+# `git commit -m "$(cat <<'EOF' ... EOF)"` idiom stay allowed.
 
 set -euo pipefail
 
@@ -86,7 +92,7 @@ import bisect, re, shlex, sys
 
 def raw_substitution_spans(command):
     # Defined in all six hooks for the shared-analyzer byte-identical convention, but only
-    # called by the three unconditional hooks (process-kill-guard.sh, no-verify-guard.sh,
+    # called by the three unconditional hooks (dangerous-command-guard.sh, no-verify-guard.sh,
     # pr-merge-guard.sh) -- dead code in the other three, on purpose; look for the call site in
     # THIS hook's own tail before assuming it's used here.
     #
@@ -346,18 +352,11 @@ def consumer_words(line):
     # the word in consumer position, still checked by line_has_interpreter()/the opaque check --
     # an incomplete skip list costs precision, not safety, the opposite failure direction.
     #
-    # KNOWN, NOT covered by this round: a wrapper that takes its OWN argument before the real
-    # consumer ('timeout 5 $SHELL', 'nice -n 10 $SHELL') hides an opaque consumer this fix does
-    # not catch, since only the bare wrapper NAME is skipped, not a following flag/value -- and
-    # with $SHELL specifically, which bash sets itself whenever it is not already inherited, this
-    # is live in EVERY environment, not a theoretical variable that happens to be unset in most of
-    # them (an earlier draft of this note used $CMD, populated in essentially no environment,
-    # which understated how live this gap actually is -- corrected after measuring both under a
-    # bare 'env -i': $CMD genuinely inert there, $SHELL genuinely not). Not fixed in this round:
-    # the argument shapes differ per wrapper (a duration, a niceness level, a signal number, ...)
-    # and handling them would mean wrapper-specific parsing, a larger change than this report
-    # covers. Flagged, not silently left, for the same reason every other scope boundary on this
-    # ticket is written down instead of discovered later.
+    # Not covered here: a wrapper that takes its OWN argument before the real consumer
+    # ('timeout 5 $SHELL', 'nice -n 10 $SHELL') hides an opaque consumer from this function, since
+    # only the bare wrapper NAME is skipped. dangerous-command-guard.sh reads every word of the
+    # whole command outside the heredoc bodies instead of resolving a consumer, so it blocks these shapes;
+    # the other guards sharing this function do not.
     words = []
     for stage in line.split('|'):
         stage = stage.strip()
@@ -789,35 +788,365 @@ for tok in tokens:
     else:
         segments[-1].append(tok)
 
-if PARSE_FAILED:
-    if re.search(r'\b(pkill|killall)\b', sys.argv[1]):
-        print('BLOCK')
-    sys.exit(0)
-
 KILLERS = {'pkill', 'killall'}
+DELETERS = {'rm', 'rmdir'}
+SHELLS = {'bash', 'sh', 'zsh', 'ksh', 'dash'}
+EXTRA_INTERPRETERS = {'node', 'fish', 'csh', 'tcsh', 'awk', 'gawk', 'php', 'lua', 'osascript', 'deno', 'bun', 'source', '.'}
+FIND_EXECS = {'-exec', '-execdir', '-ok', '-okdir'}
+CRITICAL_PATHS = {'/', '~', '.', '..'}
+UNRESOLVABLE_CHARS = '$`*?['
+NON_FILE_TARGETS = {'/dev/null', '/dev/stdout', '/dev/stderr'}
+COMMAND_POSITION_SKIPS = WRAPPERS | {'if', 'then', 'do', 'else', 'elif', 'while', 'until', '{'}
+PUNCTUATION = '&|;\n()<>'
+DATA_COMMANDS = {'git', 'gh', 'dashboard'}
+BARE_EXPANSION_RE = re.compile(r'\$(?:[A-Za-z_][A-Za-z0-9_]*|\{[^}]*\}|[0-9@*#?$!-])')
+CAT_SUBSTITUTION_RE = re.compile(r"\$\(\s*cat\s+<<-?\s*'[A-Za-z_][A-Za-z0-9_]*'\s*\)")
+BARE_CAT_RE = re.compile(r"cat\s+(?:>&2\s+)?<<-?\s*'[A-Za-z_][A-Za-z0-9_]*'(?:\s+>&2)?")
+ASSIGNMENT_RE = re.compile(r'^[A-Za-z_][A-Za-z0-9_]*=')
+REDIRECT_TOKEN_RE = re.compile(r'^[&\d]*(?:>>?|<)&?(.*)$')
+RM_WORD_RE = re.compile(r'(?:^|[\s;&|(`])(?<!git )(?:[\w./-]*/)?(?:rm|rmdir)(?=$|[\s;&|)`])')
 
-for seg in segments:
-    for tok in seg:
-        if normalize_bin(tok) in KILLERS:
-            print('BLOCK')
-            sys.exit(0)
+def main(command):
+    # Each class prints its own name, so the bash side can name the alternative that fits it.
+    if PARSE_FAILED:
+        if re.search(r'\b(pkill|killall)\b', command):
+            return 'kill'
+    elif runs_killer(command):
+        return 'kill'
+    return heredoc_class(command) or ('deletion' if deletes_in(command, False) else None)
 
-for span in raw_substitution_spans(sys.argv[1]):
-    span = strip_heredocs(span)
-    if re.search(r'\bpkill\b', span) or re.search(r'\bkillall\b', span):
-        print('BLOCK')
-        sys.exit(0)
+def runs_killer(command):
+    if any(normalize_bin(tok) in KILLERS for seg in segments for tok in seg):
+        return True
+    return any(re.search(r'\b(pkill|killall)\b', strip_heredocs(span)) for span in raw_substitution_spans(command))
+
+def heredoc_class(command):
+    # A command that matches one of data_idiom's idioms is allowed, its quoted body being data.
+    # Every other command is read as shell: all of its words outside the heredoc bodies, in every
+    # segment, group, function and substitution, are checked, never only the words connected to a
+    # heredoc. The $(...) and backtick spans of an unquoted body run, so they are queued and read the
+    # same way. A queue, not recursion, keeps the depth of nesting from ever ending the walk early.
+    if data_idiom(command):
+        return None
+
+    pending = [command]
+    while pending:
+        visible, unquoted_bodies, openers, _ = split_bodies(pending.pop())
+        if openers == 0:
+            continue
+
+        found = visible_class(visible)
+        if found:
+            return found
+
+        for body in unquoted_bodies:
+            pending.extend(raw_substitution_spans(body))
+    return None
+
+def deletes_in(text, inside_substitution):
+    # Inside a $(...) or backtick span bash runs whatever is there, so any rm blocks; at the top
+    # level only an rm with an unresolvable target does. Spans are queued, not recursed into.
+    pending = [(text, inside_substitution)]
+    while pending:
+        current, inside = pending.pop()
+        current = strip_literal_heredocs(current)
+        segs = segments_of(current)
+        if segs is None:
+            found = RM_WORD_RE.search(strip_comments(strip_heredocs(current))) is not None
+        else:
+            found = any(deletes_in_segment(seg, inside) for seg in segs)
+        if found:
+            return True
+
+        pending.extend((span, True) for span in raw_substitution_spans(drop_sink_bodies(current)))
+    return False
+
+def drop_sink_bodies(command):
+    # The quoted-delimiter bodies strip_heredocs reads as data (a cat opener line naming no
+    # interpreter) hold no live $(...) or backtick either.
+    lines = command.split('\n')
+    kept = []
+    i = 0
+    while i < len(lines):
+        kept.append(lines[i])
+        opener = heredoc_opener(lines[i])
+        if opener is not None and opener.group(2) and line_has_data_sink(lines[i]) and not line_has_interpreter(lines[i]):
+            end = body_end(lines, i, opener)
+            i = end + 1 if end > i else i + 1
+        else:
+            i += 1
+    return '\n'.join(kept)
+
+def deletes_in_segment(seg, inside_substitution):
+    start = command_start(seg)
+    if start is not None and normalize_bin(seg[start]) in DELETERS:
+        if inside_substitution or any(is_unresolvable(op) for op in operands(seg[start + 1:])):
+            return True
+    return deletes_through_another_command(seg)
+
+def tokenize(text):
+    lex = shlex.shlex(text, posix=True, punctuation_chars='&|;\n')
+    lex.whitespace_split = True
+    lex.whitespace = lex.whitespace.replace('\n', '')
+    lex.commenters = ''
+    return list(lex)
+
+def segments_of(text):
+    try:
+        tokens = tokenize(strip_comments(strip_heredocs(text)))
+    except ValueError:
+        return None
+    found = [[]]
+    for tok in tokens:
+        if is_boundary(tok):
+            found.append([])
+        else:
+            found[-1].append(tok)
+    return found
+
+def deletes_through_another_command(seg):
+    words = [normalize_bin(tok) for tok in seg]
+    for i, word in enumerate(words):
+        rest = words[i + 1:]
+        if word == 'xargs' and DELETERS & set(rest):
+            return True
+        if word == 'find' and ('-delete' in rest or any(a in FIND_EXECS and b in DELETERS for a, b in zip(rest, rest[1:]))):
+            return True
+        if word in SHELLS and RM_WORD_RE.search(shell_script(seg[i + 1:])):
+            return True
+    return False
+
+def command_start(seg):
+    # Command position only, unlike the killer check: a deletion this misses is one the harness
+    # still asks about, while matching rm anywhere would block every `grep rm` and `echo rm`.
+    for i, tok in enumerate(seg):
+        word = strip_shell_meta(tok)
+        if ASSIGNMENT_RE.match(word) and ('$(' in word or '`' in word):
+            return None
+        if word and word not in COMMAND_POSITION_SKIPS and not ASSIGNMENT_RE.match(word) and not REDIRECT_TOKEN_RE.match(word):
+            return i
+    return None
+
+def operands(args):
+    found = []
+    flags_done = False
+    skip_next = False
+    for tok in args:
+        if skip_next:
+            skip_next = False
+            continue
+        redirect = REDIRECT_TOKEN_RE.match(tok)
+        if redirect:
+            skip_next = redirect.group(1) == ''
+            continue
+        if not flags_done and tok == '--':
+            flags_done = True
+            continue
+        if not flags_done and tok.startswith('-') and tok != '-':
+            continue
+        found.append(tok)
+    return found
+
+def is_unresolvable(operand):
+    if any(c in operand for c in UNRESOLVABLE_CHARS):
+        return True
+    return (operand.rstrip(')`').rstrip('/') or '/') in CRITICAL_PATHS
+
+def shell_script(args):
+    # The script `bash -c` or `sh -lc` runs: the word after a short-option cluster holding c.
+    for i, tok in enumerate(args):
+        if not tok.startswith('-'):
+            return ''
+        if re.match(r'^-[A-Za-z]*c[A-Za-z]*$', tok):
+            return args[i + 1] if i + 1 < len(args) else ''
+    return ''
+
+def heredoc_opener(line):
+    for m in HEREDOC_RE.finditer(line):
+        if not is_outside_quotes(line, m.start()):
+            continue
+        before = line[:m.start()]
+        if (len(before) - len(before.rstrip('\\'))) % 2 == 0:
+            return m
+    return None
+
+def body_end(lines, start, opener):
+    for j in range(start + 1, len(lines)):
+        line = lines[j].lstrip('\t') if opener.group(1) == '-' else lines[j]
+        if line == opener.group(3):
+            return j
+    return start
+
+def split_bodies(text):
+    # The text with every heredoc body and its closing delimiter line cut out, the bodies of the
+    # unquoted-delimiter heredocs (whose $(...) and backticks run), the number of heredocs opened,
+    # and how many of those have a quoted delimiter. A heredoc with no closing line keeps its text.
+    lines = text.split('\n')
+    visible = []
+    unquoted_bodies = []
+    openers = 0
+    quoted = 0
+    i = 0
+    while i < len(lines):
+        visible.append(lines[i])
+        opener = heredoc_opener(strip_comments(lines[i]))
+        if opener is None:
+            i += 1
+            continue
+
+        openers += 1
+        quoted += 1 if opener.group(2) else 0
+        end = body_end(lines, i, opener)
+        if end > i and not opener.group(2):
+            unquoted_bodies.append('\n'.join(lines[i + 1:end]))
+        i = end + 1 if end > i else i + 1
+    return '\n'.join(visible), unquoted_bodies, openers, quoted
+
+def data_idiom(command):
+    # The only commands whose quoted heredoc body is data: one heredoc, one segment, no pipe, group
+    # or compound, and either git commit -F -, gh --body-file - / -F -, a "$(cat <<'EOF' ... )"
+    # argument of git, gh or dashboard, or a bare cat <<'EOF' with at most a >&2.
+    visible, _, openers, quoted = split_bodies(command)
+    if openers != 1 or quoted != 1:
+        return False
+
+    text = visible.strip()
+    if BARE_CAT_RE.fullmatch(text):
+        return True
+
+    tokens = lex(text)
+    if not tokens or any(kind == 'break' for kind, _ in tokens) or tokens[0][0] != 'word':
+        return False
+
+    words = [tok for kind, tok in tokens if kind == 'word']
+    pairs = list(zip(words, words[1:]))
+    first = normalize_bin(words[0])
+    if first == 'git' and 'commit' in words and ('-F', '-') in pairs:
+        return True
+    if first == 'gh' and (('--body-file', '-') in pairs or ('-F', '-') in pairs):
+        return True
+    return first in DATA_COMMANDS and any(CAT_SUBSTITUTION_RE.fullmatch(w) for w in words)
+
+def visible_class(text):
+    # 'heredoc-file' when a cat or tee stage of the text or of a substitution span in it writes a
+    # file, else 'heredoc-interpreter' when any word of them is an interpreter name or a bare
+    # parameter expansion, else None. Spans are queued, not recursed into.
+    interprets = False
+    writes = False
+    pending = [text]
+    while pending:
+        current = pending.pop()
+        tokens = lex(current)
+        if tokens is None:
+            words = re.split(r'[^A-Za-z0-9_$./{}-]+', current)
+            interprets = interprets or any(is_interpreter_word(w) or BARE_EXPANSION_RE.fullmatch(w) for w in words)
+            writes = writes or re.search(r'\b(?:cat|tee)\b[^|;&\n]*>', current) is not None
+            continue
+
+        interprets = interprets or names_interpreter(tokens)
+        writes = writes or writes_file(tokens)
+        pending.extend(raw_substitution_spans(current))
+
+    if writes:
+        return 'heredoc-file'
+    return 'heredoc-interpreter' if interprets else None
+
+def lex(text):
+    # shlex words with ( ) < > | ; & and newline split out as their own tokens, each tagged 'word',
+    # 'redirect' or 'break'; None when the text does not tokenize.
+    try:
+        lexer = shlex.shlex(text, posix=True, punctuation_chars=PUNCTUATION)
+        lexer.whitespace_split = True
+        lexer.whitespace = lexer.whitespace.replace('\n', '')
+        lexer.commenters = ''
+        return [(token_kind(tok), tok) for tok in lexer]
+    except ValueError:
+        return None
+
+def token_kind(tok):
+    if not tok or not all(c in PUNCTUATION for c in tok):
+        return 'word'
+    if '(' in tok or ')' in tok:
+        return 'break'
+    return 'redirect' if '<' in tok or '>' in tok else 'break'
+
+def names_interpreter(tokens):
+    at_start = True
+    skip_target = False
+    for kind, tok in tokens:
+        if kind == 'break':
+            at_start = True
+            skip_target = False
+        elif kind == 'redirect':
+            skip_target = True
+        elif skip_target:
+            skip_target = False
+        else:
+            if is_interpreter_word(tok) or BARE_EXPANSION_RE.fullmatch(tok):
+                return True
+            if at_start and (tok == '$' or tok.startswith('`')):
+                return True
+            at_start = at_start and ASSIGNMENT_RE.match(tok) is not None
+    return False
+
+def is_interpreter_word(tok):
+    name = normalize_bin(tok)
+    return name in INTERPRETERS or name in EXTRA_INTERPRETERS or re.fullmatch(r'python[\d.]*', name) is not None
+
+def writes_file(tokens):
+    for words, redirects in stages_of(tokens):
+        names = [normalize_bin(w) for w in words]
+        if 'tee' in names and any(not w.startswith('-') for w in words[names.index('tee') + 1:]):
+            return True
+        if 'cat' in names and redirects:
+            return True
+    return False
+
+def stages_of(tokens):
+    # Each stage as its words and whether it redirects output to a file. A file descriptor number
+    # written before a redirect is not a word of the stage.
+    stages = []
+    words = []
+    redirects = False
+    operator = None
+    for kind, tok in tokens:
+        if kind == 'break':
+            stages.append((words, redirects))
+            words, redirects, operator = [], False, None
+        elif kind == 'redirect':
+            operator = tok
+            if words and words[-1].isdigit():
+                words.pop()
+        elif operator is not None:
+            redirects = redirects or writes_target(operator, tok)
+            operator = None
+        else:
+            words.append(tok)
+    stages.append((words, redirects))
+    return stages
+
+def writes_target(operator, target):
+    if '>' not in operator or target in NON_FILE_TARGETS:
+        return False
+    return not (operator.endswith('&') and (target.isdigit() or target == '-'))
+
+def strip_literal_heredocs(command):
+    # A quoted body is dropped as data only for a data_idiom; any other body stays visible to the
+    # deletion rules like any other shell.
+    return split_bodies(command)[0] if data_idiom(command) else command
+
+result = main(sys.argv[1])
+if result:
+    print(result)
 PY
 ) || RESULT=""
 else
   RESULT=""
 fi
 
-if [[ "$RESULT" != "BLOCK" ]]; then
-  exit 0  # Couldn't parse, or no killer token found — allow (fail open)
-fi
-
-cat >&2 <<'EOF'
+case "$RESULT" in
+  kill)
+    cat >&2 <<'EOF'
 BLOCKED: blind pattern-kill (pkill / killall) is not allowed
 
 Pattern kills match processes by name or command line, so they over-match:
@@ -832,4 +1161,53 @@ Do this instead:
 
 Kill one verified PID at a time. Targeted `kill <pid>` is allowed.
 EOF
+    ;;
+  heredoc-interpreter)
+    cat >&2 <<'EOF'
+BLOCKED: a heredoc fed to an interpreter
+
+A script piped into python, node, bash or another interpreter through a heredoc
+is code nobody can read before it runs, and the harness stops to ask about it
+even in bypass mode. A bare variable word such as `cd "$DIR" && git commit ...`
+in the same command counts too.
+
+Do this instead: write the script to a file in your scratchpad with the Write
+tool, then run it by path, e.g. `python3 /path/to/script.py`. To commit with a
+message body, use `git -C "<dir>" commit -F - <<'EOF'` instead of `cd`.
+EOF
+    ;;
+  heredoc-file)
+    cat >&2 <<'EOF'
+BLOCKED: a heredoc written to a file
+
+`cat <<EOF > file`, `cat >> file <<EOF` and `tee` write a file the harness
+cannot show as a change, and it stops to ask about them even in bypass mode.
+
+Do this instead: create the file with the Write tool, or change it with Edit.
+Still allowed: `cat >&2 <<EOF`, `--body-file -`, and
+`git commit -m "$(cat <<'EOF' … EOF)"`.
+EOF
+    ;;
+  deletion)
+    cat >&2 <<'EOF'
+BLOCKED: a deletion whose target is only known when it runs
+
+This rm or rmdir names its target through a variable, a glob, a command
+substitution or a critical path (/ ~ . ..), or runs inside bash -c, xargs or
+find. The harness cannot tell what it will delete, so it stops to ask even in
+bypass mode.
+
+Do this instead: name the path literally, as one absolute or worktree-relative
+path per operand, in a call of its own:
+  rm -rf /absolute/path/to/dir
+A literal-path delete of a file or directory you own is allowed.
+EOF
+    ;;
+  *)
+    exit 0  # Couldn't parse, or nothing guarded found — allow (fail open)
+    ;;
+esac
+
+echo >&2
+echo "Do not re-issue, split, or script around this block; use the alternative, or ask on the board." >&2
 exit 2  # Block the command

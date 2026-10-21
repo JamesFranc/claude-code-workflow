@@ -43,6 +43,15 @@
     ],
     "SessionStart": [
       {
+        "matcher": "startup|resume",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/session-return.sh"
+          }
+        ]
+      },
+      {
         "matcher": "startup|resume|clear|compact",
         "hooks": [
           {
@@ -125,7 +134,7 @@
           },
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/process-kill-guard.sh"
+            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/dangerous-command-guard.sh"
           },
           {
             "type": "command",

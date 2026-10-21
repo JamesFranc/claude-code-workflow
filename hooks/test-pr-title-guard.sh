@@ -201,7 +201,7 @@ test_case "F1: gh pr create inside command substitution" \
 # segment, indistinguishable from a real invocation, because the scan matches anywhere in a segment
 # rather than requiring `gh` to be at COMMAND POSITION. Fixing that would need position-matching
 # plus a wrapper allowlist (sudo/env/timeout/... prefixes still need to count as "really is gh"),
-# which is the design `process-kill-guard.sh` used until FLOW-228, whose keyword list of ordinary
+# which is the design `dangerous-command-guard.sh` used until FLOW-228, whose keyword list of ordinary
 # English words (`do`, `then`, `else`, `time`, `command`, `env`) false-blocked prose --
 # FLOW-228. Anywhere-in-segment fails toward BLOCKING;
 # command-position-plus-allowlist fails toward ALLOWING. For a guard, the fail-open is the worse
@@ -479,7 +479,7 @@ gh pr create --draft --title \"add user authentication\"" \
 # genuinely executed. Fixed by applying this hook's own bare-word check to the raw
 # command whenever shlex fails to tokenize -- unconditionally (an earlier
 # `bash -n` gate here was tried and removed once its premise was found broken by bash being
-# a streaming parser; see process-kill-guard.sh's `except ValueError:` comment for the full story) -- blocking on gh/pr/create shape alone here,
+# a streaming parser; see dangerous-command-guard.sh's `except ValueError:` comment for the full story) -- blocking on gh/pr/create shape alone here,
 # since title validity cannot be checked in unparseable text. Measured against the hook before
 # this fix: exit=0 there (should be 2).
 test_bash_ground_truth_heredoc_apostrophe() {
@@ -515,7 +515,7 @@ gh pr list' \
   0
 
 # Partial execution -- the exact shape that falsified the earlier `bash -n`
-# gate (removed; see process-kill-guard.sh's `except ValueError:` comment for the full story). bash is
+# gate (removed; see dangerous-command-guard.sh's `except ValueError:` comment for the full story). bash is
 # a STREAMING parser: it executes each complete command as it reads the input, so a real
 # invocation on an early line runs even though a later, unrelated syntax error makes the WHOLE
 # command unparseable by both shlex and `bash -n`. Measured against the hook before this fix
@@ -562,7 +562,7 @@ echo REAL_DONE' \
   2 \
   'PR TITLE MUST FOLLOW CONVENTIONAL COMMIT FORMAT'
 
-# See test-process-kill-guard.sh for the full escaped-heredoc-opener story.
+# See test-dangerous-command-guard.sh for the full escaped-heredoc-opener story.
 # Measured against 6d902e1: exit=0 (fail-open) there; must be exit=2 here.
 test_case "Round 16 FIXED: escaped '<' before '<<' no longer hides a real invocation" \
   'cat \<<EOF
@@ -571,7 +571,7 @@ EOF' \
   2 \
   'PR TITLE MUST FOLLOW CONVENTIONAL COMMIT FORMAT'
 
-# See test-process-kill-guard.sh for the full backslash/quote-split-interpreter story.
+# See test-dangerous-command-guard.sh for the full backslash/quote-split-interpreter story.
 # Measured against b14731c: exit=0 (fail-open) there; must be exit=2 here.
 test_case "Round 17 FIXED: a backslash-split interpreter name no longer hides a real invocation" \
   'cat <<EOF | b\ash

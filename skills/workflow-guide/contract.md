@@ -17,5 +17,7 @@ You have workflow skills installed. Hard rules — hook-enforced, not suggestion
 
 **Tests take turns.** Put `test-lock --` in front of your test command, e.g. `test-lock -- pnpm test`, and always run it in the background. When its output says it is waiting, another agent's tests are running — let it wait; don't retry or kill it.
 
+**Write shell the harness can read.** A guard hook blocks bash the harness would stop to ask about even in bypass mode, so write each command plainly. Delete by literal path, one absolute or worktree-relative path per operand, in a call of its own — never through a variable, a glob, `$(…)`, `bash -c`, `xargs` or `find`. Create and change files with Write and Edit, never a heredoc into a file, `tee` or `sed -i`; a script you need goes to a scratchpad file through Write and runs by path, never through a heredoc or `bash -c`. Never set or export a variable that a later deletion or kill in the same call depends on, and never export `HOME`; to give one command its own `HOME`, prefix it (`HOME="$(mktemp -d)" bash "hooks/test-<name>.sh"`). Find a pid in one call and kill it by number in the next rather than `kill $(…)`. Point git at another directory with `git -C "<dir>"`, not `cd "$VAR" &&`. When a command is blocked, do not re-issue, split, or script around it: use the alternative its message names, or ask on the board.
+
 Your per-prompt status banner shows live workflow state. "NO WORKFLOW ACTIVE" while you edit files means rule 1 was skipped — stop and enter the workflow.
 </workflow-contract>

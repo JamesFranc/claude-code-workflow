@@ -1,10 +1,11 @@
 # Walkthrough Videos
 
 The Architecture skill gives each architecture doc a walkthrough video at the top of its hosted
-Notion page: narrated when ElevenLabs is configured, and silent with the narration as subtitles
-when it isn't. The video tells the story of the work in a few minutes, so the user can review the
-design by watching it. The skill writes the script after the doc and renders it before hosting.
-Whenever a revision changes what the video says, it re-renders before re-hosting.
+Notion page: narrated by ElevenLabs or a macOS voice when one is configured, and silent with the
+narration as subtitles when neither is. The video tells the story of the work in a few minutes, so
+the user can review the design by watching it. The skill writes the script after the doc and
+renders it before hosting. Whenever a revision changes what the video says, it re-renders before
+re-hosting.
 
 ## Files
 
@@ -14,23 +15,29 @@ All of these sit beside the doc in `docs/plans/`. `<doc-basename>` is the doc's 
 | File | What it is |
 |---|---|
 | `<doc-basename>.walkthrough.json` | The script. You write it. |
-| `<doc-basename>.walkthrough.cache/` | Narration audio, cached by text, voice, and the model and speed the CLI pins. `walkthrough render` writes it; keep it between renders. |
+| `<doc-basename>.walkthrough.cache/` | Narration audio, cached by text and voice, and by the model and speed the CLI pins for ElevenLabs or by the scene's cues for a macOS voice. `walkthrough render` writes it; keep it between renders. |
 | `<doc-basename>.walkthrough.mp4` | The video. |
 
 The doc's first line under its title embeds the video: `![Walkthrough](<doc-basename>.walkthrough.mp4)`.
 Hosting turns that line into a Notion video (`skills/workflow-guide/references/notification-protocol.md`
 §Phase 1).
 
-## When ElevenLabs isn't configured
+## Choosing the voice
 
-Run `check-tools --require elevenlabs` first.
-- `configured`: go on. The video is narrated.
-- `unconfigured`: go on. `walkthrough render` makes the video without a voice: each scene lasts as
-  long as reading its narration takes, and the narration shows as subtitles. Tell the user in one
-  line that the walkthrough is silent and subtitled because `ELEVEN_LABS_API_KEY` isn't set.
-- `failed`: stop and print the reason.
+Run `check-tools --require elevenlabs,mac-voice` first. A `failed` result for either one: stop
+and print the reason. Otherwise the first configured voice narrates the video:
+- `elevenlabs` configured: ElevenLabs narrates it. `ELEVEN_LABS_VOICE_ID` overrides the voice the
+  CLI pins, per project.
+- else `mac-voice` configured: the macOS voice `WALKTHROUGH_MAC_VOICE` names narrates it, free and
+  local. The name is as `say -v '?'` lists it. Premium voices, downloaded under System Settings →
+  Accessibility → Read & Speak → System voice → Manage Voices… (Spoken Content before macOS 26),
+  sound far better than the built-in compact ones.
+- neither: `walkthrough render` makes the video without a voice: each scene lasts as long as
+  reading its narration takes, and the narration shows as subtitles. Tell the user in one line
+  that the walkthrough is silent and subtitled because no voice is configured.
 
-The voice defaults to the one the CLI pins. `ELEVEN_LABS_VOICE_ID` overrides it per project.
+With both configured, ElevenLabs wins and `walkthrough render` says on stderr that the macOS voice
+is ignored.
 
 ## Write the script
 
@@ -143,11 +150,17 @@ walkthrough render --script "docs/plans/<doc-basename>.walkthrough.json" --out "
   problems means fix the script and re-run.
 - Exit 2 means a tool it needs isn't usable:
   - `ffmpeg -version` doesn't run cleanly, whether `ffmpeg` is missing or broken;
+  - `ELEVEN_LABS_API_KEY` is unset, `WALKTHROUGH_MAC_VOICE` is set, and `say` or `ffprobe` doesn't
+    run cleanly, whether it is missing or broken (`say` is macOS-only);
   - `hyperframes browser ensure`, run through `npx`, doesn't exit 0. For example: `npx` is missing,
     the HyperFrames package can't be fetched, or no Chrome can be found or downloaded.
 - An ElevenLabs error exits 1 with its status. Stop and report ElevenLabs as broken, the same as
   `check-tools`' `onFailure`. Scenes already voiced stay cached.
+- With `ELEVEN_LABS_API_KEY` unset, a `WALKTHROUGH_MAC_VOICE` naming a voice that isn't installed
+  exits 1 before anything renders.
+  Stop and report it, the same as `check-tools`' `onFailure` for `mac-voice`.
 - stdout is a JSON summary. `narrated: false` means the video was rendered silent, with subtitles.
+  `voice` says which voice narrated it: `elevenlabs`, `mac`, or `null`.
   `overNotionLimit: true` means the video is over 20 MiB and won't upload.
   Host the doc without the video and tell the user.
 
@@ -188,8 +201,8 @@ The page lists the scenes in order. For each scene it gives:
 When the user's review changes the design:
 1. Edit the script wherever the change touches what the video says.
 2. Re-render. A scene is voiced again, and charged, only when the cache holds no audio for its text
-   in the voice, and the model and speed the CLI pins, now in use. Every other scene comes from the
-   cache and costs nothing.
+   in the voice, and the model and speed the CLI pins (for a macOS voice, the scene's cues), now in
+   use. Every other scene comes from the cache and costs nothing.
 3. Re-host the doc and the script page.
 
 A hosted video never contradicts its hosted doc.

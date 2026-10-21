@@ -77,27 +77,56 @@ make_team() {
   jq -n --arg l "$lead" '{name:"x", leadSessionId:$l, members:[]}' > "$home_dir/.claude/teams/$team/config.json"
 }
 
-# Runs the hook with a SessionEnd payload. Sets HOOK_EXIT. $5 is an optional agent_id.
+now_ms() { perl -MTime::HiRes=time -e 'printf "%d\n", time * 1000'; }
+
+# Runs the hook on payload $3 and waits for the detached run it starts. Sets HOOK_EXIT,
+# HOOK_RETURN_MS (how long the hook itself took) and DETACHED_DONE (yes, or no after the timeout).
+#
+# The hook redirects only fds 0-2 for its detached run, so fd 3, held open as a pipe, is inherited
+# by that run and its dashboard calls and reaches EOF only once every one of them has exited. The
+# first line on the pipe is the hook's own exit status, written when the hook returns; without it
+# HOOK_EXIT stays no-exit-line and HOOK_RETURN_MS stays at a value that fails a timing check.
+DETACHED_TIMEOUT_S=20
+run_hook_to_completion() {
+  local root="$1" home_dir="$2" input="$3" line start rc=0
+  start=$(now_ms)
+  exec 7< <(set +e; printf '%s' "$input" | HOME="$home_dir" CLAUDE_CONFIG_DIR="$home_dir/.claude" \
+    bash "$root/hooks/teammate-session-end.sh" 3>&1 >/dev/null 2>&1; echo "exit=$?")
+  HOOK_EXIT=no-exit-line
+  HOOK_RETURN_MS=999999999
+  if read -r -t "$DETACHED_TIMEOUT_S" -u 7 line; then
+    HOOK_EXIT="${line#exit=}"
+    HOOK_RETURN_MS=$(($(now_ms) - start))
+  fi
+  # bash 3.2 returns 1 from a timed-out read, the same as EOF, so a timeout is told apart by how long
+  # the read took.
+  local read_start
+  while [[ "$rc" -eq 0 ]]; do
+    read_start=$(now_ms)
+    read -r -t "$DETACHED_TIMEOUT_S" -u 7 line || rc=$?
+  done
+  if [[ "$rc" -eq 1 && $(($(now_ms) - read_start)) -ge $((DETACHED_TIMEOUT_S * 1000)) ]]; then
+    rc=142
+  fi
+  DETACHED_DONE=yes
+  if [[ "$rc" -gt 1 ]]; then
+    DETACHED_DONE=no
+    echo "FAIL: the detached run under $root was still going ${DETACHED_TIMEOUT_S}s after the last output"
+    FAIL=$((FAIL + 1))
+    local pid
+    for pid in $(pgrep -f "$root/hooks/teammate-session-end.sh" || true); do kill "$pid" 2>/dev/null || true; done
+  fi
+  exec 7<&-
+}
+
+# Runs the hook with a SessionEnd payload. $5 is an optional agent_id.
 run_end_hook() {
   local root="$1" home_dir="$2" session_id="$3" transcript="$4" agent_id="${5:-}"
   local input
   input=$(jq -n --arg sid "$session_id" --arg tp "$transcript" --arg aid "$agent_id" \
     '{session_id: $sid, transcript_path: $tp, cwd: "/tmp/proj", hook_event_name: "SessionEnd",
       reason: "other"} + (if $aid == "" then {} else {agent_id: $aid} end)')
-  HOOK_EXIT=0
-  printf '%s' "$input" | HOME="$home_dir" CLAUDE_CONFIG_DIR="$home_dir/.claude" \
-    bash "$root/hooks/teammate-session-end.sh" >/dev/null 2>&1 || HOOK_EXIT=$?
-  wait_for_detached "$root"
-}
-
-# The hook hands the end loop to a detached process and exits, so a case waits (at most 20s) for
-# every process still running that copy of the script.
-wait_for_detached() {
-  local i
-  for ((i = 0; i < 200; i++)); do
-    pgrep -f "$1/hooks/teammate-session-end.sh" >/dev/null || return 0
-    sleep 0.1
-  done
+  run_hook_to_completion "$root" "$home_dir" "$input"
 }
 
 # Sets up case $1: a root, a HOME, and a teammate transcript whose lead is lead-$1.
@@ -228,16 +257,11 @@ session end --session node-13-6" "$(calls_log "$ROOT" | grep 'session end' | sed
 setup_teammate 14
 printf 'leaf-14\n' > "$ROOT/bin/config/leaves"
 : > "$ROOT/bin/config/end-slow"
-now_ms() { perl -MTime::HiRes=time -e 'printf "%d\n", time * 1000'; }
 INPUT14=$(jq -n --arg sid "session-14" --arg tp "$TRANSCRIPT" \
   '{session_id: $sid, transcript_path: $tp, hook_event_name: "SessionEnd", reason: "other"}')
-START14=$(now_ms)
-printf '%s' "$INPUT14" | HOME="$HOME_DIR" CLAUDE_CONFIG_DIR="$HOME_DIR/.claude" \
-  bash "$ROOT/hooks/teammate-session-end.sh" >/dev/null 2>&1
-ELAPSED14=$(( $(now_ms) - START14 ))
+run_hook_to_completion "$ROOT" "$HOME_DIR" "$INPUT14"
 check "14: hook returned in under one second although the end takes three" "yes" \
-  "$([[ "$ELAPSED14" -lt 1000 ]] && echo yes || echo "no (${ELAPSED14}ms)")"
-wait_for_detached "$ROOT"
+  "$([[ "$HOOK_RETURN_MS" -lt 1000 ]] && echo yes || echo "no (${HOOK_RETURN_MS}ms)")"
 check "14: the detached work still ended the leaf" "1" "$(calls_log "$ROOT" | grep -c 'session end --session leaf-14')"
 
 # --- 15: a leaf set that alternates with every end succeeding is cut off at the pass backstop -------
@@ -245,10 +269,16 @@ setup_teammate 15
 printf 'leaf-15a\n' > "$ROOT/bin/config/leaves-alternate-a"
 printf 'leaf-15b\n' > "$ROOT/bin/config/leaves-alternate-b"
 run_end_hook "$ROOT" "$HOME_DIR" "session-15" "$TRANSCRIPT"
-RUNNING15=$(pgrep -f "$ROOT/hooks/teammate-session-end.sh" || true)
-for pid in $RUNNING15; do kill "$pid" 2>/dev/null || true; done
-check "15: the detached loop terminated on its own" "" "$RUNNING15"
+check "15: the detached loop terminated on its own" "yes" "$DETACHED_DONE"
 check "15: ends equal the backstop" "50" "$(calls_log "$ROOT" | grep -c 'session end')"
+
+# --- 16: a hook that exits nonzero after starting the detached run has that status reported --------
+setup_teammate 16
+printf 'leaf-16\n' > "$ROOT/bin/config/leaves"
+sed -i.bak '$ s/^exit 0$/exit 3/' "$ROOT/hooks/teammate-session-end.sh"
+run_end_hook "$ROOT" "$HOME_DIR" "session-16" "$TRANSCRIPT"
+check "16: the hook's own exit status is reported" "3" "$HOOK_EXIT"
+check "16: the detached work still ended the leaf" "1" "$(calls_log "$ROOT" | grep -c 'session end --session leaf-16')"
 
 echo
 echo "=== Results: $PASS passed, $FAIL failed ==="

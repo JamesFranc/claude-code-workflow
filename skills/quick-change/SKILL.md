@@ -1,5 +1,5 @@
 ---
-name: Quick Change
+name: quick-change
 description: Use for small, well-understood changes that are not bug fixes — tweaks, small enhancements, refactors, copy or config edits that follow an existing pattern. Writes a single combined change-summary doc, gets it approved, and hands off to Team Dispatch. The lightweight sibling of JTBD then Architecture for work that does not need full problem and design exploration. Triggers on "small change", "quick change", "tweak", "minor enhancement".
 ---
 

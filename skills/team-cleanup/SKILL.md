@@ -1,5 +1,5 @@
 ---
-name: Team Cleanup
+name: team-cleanup
 description: After PR merge or user confirmation, run a process & memory review, remove worktrees, shut down team members, pull main and reinstall dependencies, and optionally start the next story. Standalone — usable outside Team Dispatch.
 ---
 
@@ -198,11 +198,13 @@ dashboard session enter --phase cleanup --key "$STORY_NODE_KEY"
 
 **Now, with phase `cleanup` entered, flush the deferred queue and wait for the flush to be answered and consumed before either `leave` call below.** `leave` withdraws any item still open on the node (`runEnd`'s auto-withdraw runs on every `leave`, not only a bare one), so a flush that is merely posted — not yet answered — is discarded by the very `leave` that follows it, the same loss an unflushed queue would suffer. Run `dashboard item list-deferred` (add `--key "$STORY_NODE_KEY"` on the child path, re-resolved fresh immediately before each invocation with `STORY_NODE_KEY="$(dashboard session key --ticket "<CURRENT-STORY-ID>" --require)" || exit 1` — a shell variable does not survive the wait for a human answer between them); drop what the work itself already answered — `dashboard item drop-deferred --id "<id>" --reason "<what answered it>"` (same `--key`) — then, if the remaining queue is non-empty, flush it — `dashboard item flush-deferred --context "<pr url>"` (same `--key`, re-resolved the same way, on the child path) — treat the posted items like any other board questions (`skills/board/references/dashboard-protocol.md` §2, §4) — it returns one `itemId` per posted question — wait for all of them to be answered and consumed (`dashboard item consume`), not just the first — then run `dashboard item list-deferred` again. A post that fails part-way leaves the rest queued, unflushed, for `leave` to silently discard. A flush can also refuse outright rather than shrink the queue at all — an approval already open on the node, or `--context` alone pushing the first entry past the composed-prompt cap — and its stderr on that refusal names the remedy (withdraw or answer the approval; shorten `--context`, or drop the offending entry with `drop-deferred` first). Repeat list-deferred/flush/wait/consume, resolving whatever a refusal's stderr names, until list-deferred reports an empty queue and no item from any flush is still open, and only then proceed to the matching `leave` below.
 
-Standalone path — flushed and consumed per the paragraph above; leave now:
+**A multi-PR story ends every PR node still open under it before either `leave` below.** For each branch name in the Input, the key is that branch name, or `<branch-name>-<repo-name>` with no ticket (PR Lifecycle step 1). Run `dashboard item list-deferred --key "<key>"` first. It only reads. If it reports `no active node with key`, that PR's node already ended, so skip it. Otherwise run `dashboard session enter --phase cleanup --key "<key>"`, drain its queue with the same flush, wait and consume loop as the paragraph above, using `--key "<key>"`, then run `dashboard session leave --key "<key>"`. A single-PR story has no PR node and skips this paragraph.
+
+Standalone path — story-node queue flushed and consumed (the flush paragraph above) and every PR node ended (the PR-node paragraph above); leave now:
 ```bash
 dashboard session leave --root
 ```
-Child path (`STORY_NODE_KEY` re-resolved again — the wait for a human answer above spans separate shell invocations, and a shell variable does not survive between them, `skills/board/references/dashboard-protocol.md` §1) — flushed and consumed per the paragraph above; leave now:
+Child path (`STORY_NODE_KEY` re-resolved again — the wait for a human answer above spans separate shell invocations, and a shell variable does not survive between them, `skills/board/references/dashboard-protocol.md` §1) — story-node queue flushed and consumed (the flush paragraph above) and every PR node ended (the PR-node paragraph above); leave now:
 ```bash
 STORY_NODE_KEY="$(dashboard session key --ticket "<CURRENT-STORY-ID>" --require)" || exit 1
 dashboard session leave --key "$STORY_NODE_KEY"

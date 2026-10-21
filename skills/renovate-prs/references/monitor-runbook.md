@@ -162,7 +162,6 @@ else
   echo "rc_add=$rc_add"
   cat "$ADD_OUT"
 fi
-rm -f "$ADD_OUT"
 ```
 
 With a board the call prints `itemId=<id>`; note that id, since the steps below take it as `<item-id>`

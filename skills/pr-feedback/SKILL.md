@@ -1,5 +1,5 @@
 ---
-name: PR Feedback
+name: pr-feedback
 description: Use when the user asks about PR review feedback, review comments, or wants to address reviewer feedback. Fetches unresolved inline review threads and the main review comments, evaluates each one, and implements or pushes back as appropriate.
 ---
 

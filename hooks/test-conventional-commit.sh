@@ -369,7 +369,7 @@ test_rejection_licenses_no_edit
 # tokens in the SAME segment, indistinguishable from a real invocation, because the scan matches
 # anywhere in a segment rather than requiring `git` to be at COMMAND POSITION. Fixing that would
 # need position-matching plus a wrapper allowlist (sudo/env/timeout/... prefixes still need to
-# count as "really is git"), which is the design `process-kill-guard.sh` used until FLOW-228, whose
+# count as "really is git"), which is the design `dangerous-command-guard.sh` used until FLOW-228, whose
 # keyword list of ordinary English words (`do`, `then`, `else`, `time`, `command`, `env`)
 # false-blocked prose -- FLOW-228. Anywhere-in-segment fails
 # toward BLOCKING; command-position-plus-allowlist fails toward ALLOWING. For a guard, the fail-open

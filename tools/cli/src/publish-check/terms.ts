@@ -30,7 +30,7 @@ export const readPrivateTermsFile = (path: string): PrivateTerms => {
   return parsePrivateTerms(raw)
 }
 
-const errorCode = (error: unknown): string =>
+export const errorCode = (error: unknown): string =>
   typeof error === 'object' && error !== null && 'code' in error
     ? String(error.code)
     : String(error)

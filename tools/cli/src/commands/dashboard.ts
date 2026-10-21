@@ -3,6 +3,7 @@ import { parseNonBlankString } from '../parse.ts'
 import { setRequestedExitCode } from '../runtime-exit-code.ts'
 import { DashboardEnterRefusal, runEnter } from '../dashboard/enter.ts'
 import { runSessionKey } from '../dashboard/key.ts'
+import { runRefreshReturn } from '../dashboard/return-link.ts'
 import {
   runItemAdd,
   runItemAnswer,
@@ -262,10 +263,33 @@ const keyCommand = buildCommand({
   },
 })
 
+const refreshReturnCommand = buildCommand({
+  docs: {
+    brief:
+      "Re-point the session root's return link at the terminal this session runs in (no-op outside iTerm2)",
+  },
+  parameters: {
+    flags: {
+      cwd: {
+        kind: 'parsed',
+        parse: parseNonBlankString('--cwd'),
+        brief: 'Directory the session was launched from (recorded for `claude --resume`)',
+        optional: true,
+      },
+      session: sessionFlag,
+    },
+    positional: { kind: 'tuple', parameters: [] },
+  },
+  func(flags: { cwd?: string; session?: string }) {
+    runRefreshReturn(flags.cwd, flags.session)
+  },
+})
+
 const sessionRoutes = buildRouteMap({
   routes: {
     enter: enterCommand,
     key: keyCommand,
+    'refresh-return': refreshReturnCommand,
     leave: leaveCommand,
     heartbeat: heartbeatCommand,
     end: endCommand,

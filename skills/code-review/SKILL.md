@@ -1,5 +1,5 @@
 ---
-name: Code Review
+name: code-review
 description: Used by the senior engineer to review implementation before a PR is opened. Provides a structured, thorough review process with universal standards and work-type-specific checks. The bar is simple — the user should find nothing when they review.
 ---
 

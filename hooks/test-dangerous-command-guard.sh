@@ -1,5 +1,5 @@
 #!/bin/bash
-# Test script for process-kill-guard.sh
+# Test script for dangerous-command-guard.sh
 # Simulates hook input and verifies expected outcomes
 #
 # PIN-LABELING CONVENTION for this file's bash-execution audit: every test_case() row
@@ -27,33 +27,130 @@
 
 set -euo pipefail
 
-HOOK_SCRIPT="$(dirname "$0")/process-kill-guard.sh"
+HOOK_SCRIPT="$(dirname "$0")/dangerous-command-guard.sh"
 PASS=0
 FAIL=0
+MATCHED=0
+WORK_DIR=$(mktemp -d)
+trap 'rm -rf "$WORK_DIR"' EXIT
 
+# Every row pins all three channels: the exit status, stdout empty, and stderr equal to the whole
+# expected text. A row that blocks without naming a message expects the pattern-kill one, and a
+# row that allows expects empty stderr.
 test_case() {
   local description="$1"
   local command="$2"
   local expected_exit="$3"  # 0 = allow, 2 = block
+  local expected_stderr="${4-}"
+  if [[ -z "$expected_stderr" && "$expected_exit" -eq 2 ]]; then
+    expected_stderr="$KILL"
+  fi
+
+  # ONLY="<text>" runs just the rows whose description contains it; the bash ground-truth
+  # checks below are not rows and always run.
+  if [[ -n "${ONLY:-}" && "$description" != *"$ONLY"* ]]; then
+    return
+  fi
+  MATCHED=$((MATCHED + 1))
 
   # Build the JSON input that the hook expects
   local input
   input=$(jq -n --arg cmd "$command" '{"tool_input": {"command": $cmd}}')
 
   local actual_exit=0
-  echo "$input" | bash "$HOOK_SCRIPT" 2>/dev/null || actual_exit=$?
+  echo "$input" | bash "$HOOK_SCRIPT" >"$WORK_DIR/stdout" 2>"$WORK_DIR/stderr" || actual_exit=$?
+  local actual_stderr
+  actual_stderr=$(cat "$WORK_DIR/stderr"; printf x)
+  actual_stderr=${actual_stderr%x}
 
-  if [[ "$actual_exit" -eq "$expected_exit" ]]; then
+  if [[ "$actual_exit" -eq "$expected_exit" && ! -s "$WORK_DIR/stdout" && "$actual_stderr" == "$expected_stderr" ]]; then
     echo "PASS: $description"
     PASS=$((PASS + 1))
   else
-    echo "FAIL: $description (expected exit $expected_exit, got $actual_exit)"
+    echo "FAIL: $description (expected exit $expected_exit with stdout empty and stderr ${expected_stderr:0:60}..., got exit $actual_exit, stdout $(wc -c < "$WORK_DIR/stdout") bytes, stderr ${actual_stderr:0:60}...)"
     FAIL=$((FAIL + 1))
   fi
 }
 
-echo "=== Process Kill Guard Tests ==="
+echo "=== Dangerous Command Guard Tests ==="
 echo
+
+CLOSING="Do not re-issue, split, or script around this block; use the alternative, or ask on the board."
+
+# Each message is the hook's complete stderr: the class text, a blank line, the closing line.
+IFS= read -r -d '' KILL_TEXT <<'EOF' || true
+BLOCKED: blind pattern-kill (pkill / killall) is not allowed
+
+Pattern kills match processes by name or command line, so they over-match:
+they can reap another session's processes or unrelated tools, and they destroy
+the evidence you need to find the real problem.
+
+Do this instead:
+  1. Enumerate — `ps`, `jobs`, or the tool's own status command.
+  2. Identify each PID and confirm what it is and who owns it.
+  3. Kill only the confirmed-redundant PIDs by number:
+       kill <pid>     (or kill -TERM <pid>)
+
+Kill one verified PID at a time. Targeted `kill <pid>` is allowed.
+EOF
+IFS= read -r -d '' HEREDOC_INTERPRETER_TEXT <<'EOF' || true
+BLOCKED: a heredoc fed to an interpreter
+
+A script piped into python, node, bash or another interpreter through a heredoc
+is code nobody can read before it runs, and the harness stops to ask about it
+even in bypass mode. A bare variable word such as `cd "$DIR" && git commit ...`
+in the same command counts too.
+
+Do this instead: write the script to a file in your scratchpad with the Write
+tool, then run it by path, e.g. `python3 /path/to/script.py`. To commit with a
+message body, use `git -C "<dir>" commit -F - <<'EOF'` instead of `cd`.
+EOF
+IFS= read -r -d '' HEREDOC_FILE_TEXT <<'EOF' || true
+BLOCKED: a heredoc written to a file
+
+`cat <<EOF > file`, `cat >> file <<EOF` and `tee` write a file the harness
+cannot show as a change, and it stops to ask about them even in bypass mode.
+
+Do this instead: create the file with the Write tool, or change it with Edit.
+Still allowed: `cat >&2 <<EOF`, `--body-file -`, and
+`git commit -m "$(cat <<'EOF' … EOF)"`.
+EOF
+IFS= read -r -d '' DELETION_TEXT <<'EOF' || true
+BLOCKED: a deletion whose target is only known when it runs
+
+This rm or rmdir names its target through a variable, a glob, a command
+substitution or a critical path (/ ~ . ..), or runs inside bash -c, xargs or
+find. The harness cannot tell what it will delete, so it stops to ask even in
+bypass mode.
+
+Do this instead: name the path literally, as one absolute or worktree-relative
+path per operand, in a call of its own:
+  rm -rf /absolute/path/to/dir
+A literal-path delete of a file or directory you own is allowed.
+EOF
+KILL="$KILL_TEXT"$'\n'"$CLOSING"$'\n'
+HEREDOC_INTERPRETER="$HEREDOC_INTERPRETER_TEXT"$'\n'"$CLOSING"$'\n'
+HEREDOC_FILE="$HEREDOC_FILE_TEXT"$'\n'"$CLOSING"$'\n'
+DELETION="$DELETION_TEXT"$'\n'"$CLOSING"$'\n'
+
+# The hook's shebang is #!/bin/bash, which is bash 3.2 on macOS, while the rows below run the hook
+# under whichever bash is first on PATH. A syntax bash 3.2 rejects would crash the hook there
+# with no BLOCKED message, so parse it with the shebang's own interpreter.
+test_hook_parses_under_shebang_bash() {
+  local description="bash ground truth: the hook parses under /bin/bash, the interpreter on its shebang"
+  if [[ ! -x /bin/bash ]]; then
+    return
+  fi
+  local output
+  if output=$(/bin/bash -n "$HOOK_SCRIPT" 2>&1); then
+    echo "PASS: $description"
+    PASS=$((PASS + 1))
+  else
+    echo "FAIL: $description (${output%%$'\n'*})"
+    FAIL=$((FAIL + 1))
+  fi
+}
+test_hook_parses_under_shebang_bash
 
 # --- Should BLOCK (pattern-kill invocations) ---
 
@@ -503,7 +600,7 @@ pkill node" \
   2
 
 test_case "Finding B: parse-failure fallback with no guarded token present stays allowed" \
-  "bash <<EOF
+  "wc -l <<EOF
 don't
 EOF
 echo hi" \
@@ -707,46 +804,48 @@ EOF' \
 
 # Corpus B: seven legitimate cat-heredoc shapes that carry an expansion OUTSIDE consumer position
 # (a redirect target or path, or a leading VAR=value assignment before the real consumer). None
-# has an expansion in consumer position, so line_has_interpreter()'s opaque-expansion check must leave every one of these
-# unchanged at exit=0 -- measured against real bash directly before writing this suite, not
+# has an expansion in consumer position, so line_has_interpreter()'s opaque-expansion check must never
+# read one of these as a kill -- measured against real bash directly before writing this suite, not
 # reasoned from the mechanism alone; a first, unproven, wider version of this fix (keying on "any
-# unresolvable expansion anywhere on the opener line") would have false-blocked all seven.
+# unresolvable expansion anywhere on the opener line") would have false-blocked all seven. The six
+# that redirect into a file are now blocked as heredocs written to a file, so each asserts that
+# message, which only prints when the kill check passed.
 
 test_case "Round 19 CONTROL: expansion in a double-quoted redirect target, not consumer position" \
   'cat <<EOF > "$FILE"
 echo hi
 EOF' \
-  0
+  2 "$HEREDOC_FILE"
 
 test_case "Round 19 CONTROL: expansion in an append-redirect target" \
   'cat <<EOF >> $LOG
 echo hi
 EOF' \
-  0
+  2 "$HEREDOC_FILE"
 
 test_case "Round 19 CONTROL: braced expansion in a redirect target" \
   'cat <<EOF > ${DIR}/f
 echo hi
 EOF' \
-  0
+  2 "$HEREDOC_FILE"
 
 test_case "Round 19 CONTROL: substitution inside a redirect target filename" \
   'cat <<EOF > out-$(date +%s).txt
 echo hi
 EOF' \
-  0
+  2 "$HEREDOC_FILE"
 
 test_case "Round 19 CONTROL: expansion mid-path in a redirect target" \
   'cat <<EOF > /tmp/$USER.txt
 echo hi
 EOF' \
-  0
+  2 "$HEREDOC_FILE"
 
 test_case "Round 19 CONTROL: expansion in a leading VAR=value assignment before the real consumer" \
   'EDITOR=$CMD cat <<EOF > f
 echo hi
 EOF' \
-  0
+  2 "$HEREDOC_FILE"
 
 test_case "Round 19 CONTROL: no expansion anywhere, baseline" \
   'cat <<EOF
@@ -829,27 +928,312 @@ pkill -f node
 EOF" \
   2
 
-# Labelled CONTROL, but a control is something that must HOLD, whose failure
-# means the instrument is broken -- this is a defect held at its current value, whose failure
-# (going from 0 to 2) means the gap got fixed. Opposite meanings under one word is exactly how the
-# mislabeling went unnoticed for so long. Relabelled KNOWN FAIL-OPEN, unfixed to match what it
-# actually is. The payload itself was also wrong for that label: it originally used $CMD, which is
-# populated in essentially no environment, so with $CMD unset bash pipes the heredoc into
-# `timeout 5` with no command at all and the killer never runs -- the pin asserting 0 was simply
-# CORRECT there, and labelling it KNOWN FAIL-OPEN would have been wrong in the opposite direction.
-# Switched to $SHELL, which bash sets itself whenever it is not already inherited, so it is
-# populated in EVERY environment including a bare `env -i` -- confirmed against real bash under
-# `env -i` directly (the killer genuinely runs) before trusting this payload, the same way $CMD's
-# inertness was confirmed under `env -i` before rejecting it. This pin is now a real fail-open in
-# any environment, not conditional on what the auditing harness happens to export.
-test_case "Round 21 KNOWN FAIL-OPEN, unfixed: a wrapper's own argument (timeout's duration) still hides the opaque consumer behind it; documented in consumer_words(), not fixed here" \
+# $SHELL is populated in every environment, including a bare `env -i`, so this payload really runs
+# the killer; $CMD is unset in nearly every environment and would leave `timeout 5` with no command.
+test_case "Round 21 a wrapper's own argument (timeout's duration) does not hide the opaque consumer behind it" \
   "cat <<EOF | timeout 5 \$SHELL
 pkill -f node
 EOF" \
-  0
+  2 "$HEREDOC_INTERPRETER"
+
+# --- Unresolvable deletions, heredocs, and what stays allowed ---
+#
+# Each row tags its class in brackets so one class runs alone: ONLY="[heredoc-file]" bash <this file>.
+# A block row passes its class's BLOCKED: line as the fourth argument, so a row blocked for the
+# wrong reason fails.
+
+test_case "[deletion-operand] quoted variable target" 'rm -rf "$DIR"' 2 "$DELETION"
+test_case "[deletion-operand] variable path prefix, logged shape" 'rm -f $S/sw15-ids.txt' 2 "$DELETION"
+test_case "[deletion-operand] cd then bare glob, logged shape" 'mkdir -p $SP/p && cd $SP/p && rm -rf * && unzip -q x.zip' 2 "$DELETION"
+test_case "[deletion-operand] relative glob, logged shape" 'cd /tmp/run2 && rm -f ./*' 2 "$DELETION"
+test_case "[deletion-operand] braced variable" 'rm -rf ${HOME}/x' 2 "$DELETION"
+test_case "[deletion-operand] quoted command substitution as the target" 'rm -rf "$(mktemp -d)"' 2 "$DELETION"
+test_case "[deletion-operand] backtick substitution in the target" 'rm -rf `pwd`/x' 2 "$DELETION"
+test_case "[deletion-operand] root" 'rm -rf /' 2 "$DELETION"
+test_case "[deletion-operand] bare home" 'rm -rf ~' 2 "$DELETION"
+test_case "[deletion-operand] current directory with a trailing slash" 'rm -rf ./' 2 "$DELETION"
+test_case "[deletion-operand] parent directory" 'rm -rf ..' 2 "$DELETION"
+test_case "[deletion-operand] behind sudo" 'sudo rm -rf $X' 2 "$DELETION"
+test_case "[deletion-operand] inside an if" 'if true; then rm -f $X; fi' 2 "$DELETION"
+test_case "[deletion-operand] inside a subshell" '(rm -f $X)' 2 "$DELETION"
+test_case "[deletion-operand] after a leading redirect" '2>/dev/null rm -f $X' 2 "$DELETION"
+test_case "[deletion-operand] by absolute binary path" '/bin/rm -f $X' 2 "$DELETION"
+test_case "[deletion-operand] rmdir in a loop, logged shape" 'for r in a b; do rmdir -p $r/x; done' 2 "$DELETION"
+test_case "[deletion-parse-failure] an rm in a command shlex cannot split still blocks" 'rm -f $X "unterminated' 2 "$DELETION"
+test_case "[deletion-substitution] rm inside \$(...)" 'echo $(rm -f /tmp/a)' 2 "$DELETION"
+test_case "[deletion-substitution] rm inside backticks" 'x=`rm /tmp/a`' 2 "$DELETION"
+test_case "[deletion-substitution] unquoted-delimiter heredoc body still runs its substitution" "cat <<EOF
+\$(rm -f /tmp/a)
+EOF" 2 "$DELETION"
+test_case "[deletion-proxy] rm in a bash -c script" "bash -c 'rm -rf /tmp/a'" 2 "$DELETION"
+test_case "[deletion-proxy] rm in an sh -lc script" 'sh -lc "rm /tmp/a"' 2 "$DELETION"
+test_case "[deletion-proxy] xargs rm" "find . -name '*.pyc' | xargs rm -f" 2 "$DELETION"
+test_case "[deletion-proxy] find -exec rm" 'find . -name x -exec rm {} +' 2 "$DELETION"
+test_case "[deletion-proxy] find -delete" 'find /tmp/x -type f -delete' 2 "$DELETION"
+
+test_case "[heredoc-file] cat into a variable path, logged shape" "cat > \$S/pairs.txt <<'EOF'
+a b
+EOF" 2 "$HEREDOC_FILE"
+test_case "[heredoc-file] cat appending to a file, logged shape" "cat >> /tmp/notes.md <<'EOF'
+x
+EOF" 2 "$HEREDOC_FILE"
+test_case "[heredoc-file] redirect after the opener" 'cat <<EOF > out.txt
+x
+EOF' 2 "$HEREDOC_FILE"
+test_case "[heredoc-file] tee with a heredoc" 'tee /tmp/x <<EOF
+y
+EOF' 2 "$HEREDOC_FILE"
+test_case "[heredoc-file] cat heredoc piped to tee" 'cat <<EOF | tee -a f
+y
+EOF' 2 "$HEREDOC_FILE"
+
+test_case "[heredoc-interpreter] python3 stdin script, logged shape" "python3 - <<'EOF'
+import re
+EOF" 2 "$HEREDOC_INTERPRETER"
+test_case "[heredoc-interpreter] python3 after a cd, logged shape" "cd \$D && python3 - <<'EOF'
+p=1
+EOF" 2 "$HEREDOC_INTERPRETER"
+test_case "[heredoc-interpreter] node" "node <<'EOF'
+console.log(1)
+EOF" 2 "$HEREDOC_INTERPRETER"
+test_case "[heredoc-interpreter] bash, ahead of the deletion in its body" 'bash <<EOF
+rm -rf $X
+EOF' 2 "$HEREDOC_INTERPRETER"
+test_case "[heredoc-interpreter] cat heredoc piped to bash" 'cat <<EOF | bash
+ls
+EOF' 2 "$HEREDOC_INTERPRETER"
+
+test_case "[closing-line] a block ends by naming what not to do" 'rm -rf "$DIR"' 2 "$DELETION"
+test_case "[allowed-delete] literal absolute directory" 'rm -rf /srv/work/x/.worktrees/tmp/FLOW-359-red' 0
+test_case "[allowed-delete] literal relative file" 'rm -f build/out.txt' 0
+test_case "[allowed-delete] literal dot-relative directory" 'rm -rf ./build' 0
+test_case "[allowed-delete] operand after --" 'rm -- -weird-name' 0
+test_case "[allowed-delete] redirect targets are not operands" 'rm -f a.txt > /dev/null 2>&1' 0
+test_case "[allowed-other] git rm with a variable" 'git rm --cached $f' 0
+test_case "[allowed-other] git worktree remove" 'git worktree remove .worktrees/tmp/x' 0
+test_case "[allowed-other] git rm inside a substitution" 'echo $(git rm --cached a)' 0
+test_case "[allowed-other] docker --rm is not rm" 'docker run --rm image' 0
+test_case "[allowed-other] rm as a grep pattern is not at command position" 'grep -rn rm src/' 0
+test_case "[allowed-other] quoted mention" 'echo "rm -rf $X is bad"' 0
+test_case "[allowed-other] find without -delete" "find . -name '*.md'" 0
+test_case "[allowed-heredoc] commit idiom whose body names every blocked shape" "git commit -m \"\$(cat <<'EOF'
+feat: [FLOW-359] block \`rm -rf \$X\` and cat <<EOF > f
+
+Also python3 - <<EOF (with parens) and \$(rm x).
+EOF
+)\"" 0
+test_case "[allowed-heredoc] heredoc PR body piped to --body-file -" "cat <<'EOF' | gh pr create --title t --body-file -
+Use \`rm -rf \$DIR\` never; \$(rm x)
+EOF" 0
+test_case "[allowed-other] heredoc to stderr" 'cat >&2 <<EOF
+hello
+EOF' 0
+test_case "[allowed-other] quoted heredoc mention" "echo 'cat <<EOF > f'" 0
+test_case "[allowed-other] heredoc in a comment" '# cat <<EOF > f
+ls' 0
+test_case "[allowed-other] printf appending to a file is not a heredoc" "printf '%s' hi >> \$D/pr-body.md" 0
+test_case "[allowed-other] targeted kill" 'kill 55093' 0
+
+test_case "[allowed-substitution] unquoted commit idiom whose prose says rm" "git commit -m \"\$(cat <<EOF
+chore: rm dead code
+EOF
+)\"" 0
+test_case "[allowed-substitution] a subcommand named rm after git -C" 'echo $(git -C repo rm --cached a)' 0
+test_case "[allowed-substitution] a package manager subcommand named rm" 'x=$(pnpm rm left-pad)' 0
+
+test_case "[allowed-quoted-body] backticked heredoc mention in a gh body" "gh issue create --body-file - <<'EOF'
+Use \`cat <<EOF > f\` never
+EOF" 0
+test_case "[allowed-quoted-body] rm in the prose of a gh body" "gh issue create --body-file - <<'EOF'
+rm -rf \$X is what we block
+EOF" 0
+test_case "[allowed-quoted-body] an apostrophe in the body of git commit -F -" "git commit -F - <<'EOF'
+Don't rm the file
+it's rm time
+EOF" 0
+
+test_case "[allowed-downstream-redirect] capture on a later pipeline stage" "cat <<'EOF' | gh api repos/o/r/issues --input - > \"\$OUT\" 2>&1; rc=\$?
+{}
+EOF" 0
+test_case "[allowed-downstream-redirect] capture of gh issue create" "cat <<'EOF' | gh issue create --body-file - > /tmp/out.txt 2>&1
+body
+EOF" 0
+
+test_case "[allowed-quoted-arg] an interpreter name inside a quoted title" "cat <<'EOF' | gh issue create --title \"python3 support\" --body-file -
+body
+EOF" 0
+
+test_case "[wrapper-consumer] timeout duration before bash" "timeout 10 bash <<'EOF'
+rm -rf \"\$X\"
+EOF" 2 "$HEREDOC_INTERPRETER"
+test_case "[wrapper-consumer] sudo -u user before python3" "sudo -u root python3 <<'EOF'
+print(1)
+EOF" 2 "$HEREDOC_INTERPRETER"
+test_case "[wrapper-consumer] nice -n before bash" "nice -n 5 bash <<'EOF'
+ls
+EOF" 2 "$HEREDOC_INTERPRETER"
+test_case "[wrapper-consumer] cat heredoc piped to timeout sh" "cat <<'EOF' | timeout 5 sh
+ls
+EOF" 2 "$HEREDOC_INTERPRETER"
+test_case "[wrapper-consumer] cat heredoc piped to sudo -u tee" "cat <<'EOF' | sudo -u x tee /etc/f
+y
+EOF" 2 "$HEREDOC_FILE"
+test_case "[wrapper-consumer] bash after then" "if true; then bash <<'EOF'
+ls
+EOF
+fi" 2 "$HEREDOC_INTERPRETER"
+test_case "[wrapper-consumer] bash after a negation" "! bash <<'EOF'
+ls
+EOF" 2 "$HEREDOC_INTERPRETER"
+test_case "[wrapper-consumer] bash inside a group fed the heredoc" "{ bash; } <<'EOF'
+ls
+EOF" 2 "$HEREDOC_INTERPRETER"
+
+test_case "[substitution-heredoc] python3 heredoc inside a commit body substitution" "git commit -F - <<EOF
+\$(python3 <<'IN'
+print(1)
+IN
+)
+EOF" 2 "$HEREDOC_INTERPRETER"
+test_case "[substitution-heredoc] python3 heredoc inside a cat body substitution" "cat <<EOF
+\$(python3 <<'IN'
+print(1)
+IN
+)
+EOF" 2 "$HEREDOC_INTERPRETER"
+test_case "[substitution-heredoc] file-writing heredoc inside a cat body substitution" "cat <<EOF
+\$(cat <<'IN' > /tmp/f
+x
+IN
+)
+EOF" 2 "$HEREDOC_FILE"
+
+test_case "[connected-word] caffeinate -i before bash, deletion in the body" "caffeinate -i bash <<'EOF'
+rm -rf \"\$X\"
+EOF" 2 "$HEREDOC_INTERPRETER"
+test_case "[connected-word] arch -arm64 before bash" "arch -arm64 bash <<'EOF'
+ls
+EOF" 2 "$HEREDOC_INTERPRETER"
+test_case "[connected-word] xcrun before python3" "xcrun python3 <<'EOF'
+print(1)
+EOF" 2 "$HEREDOC_INTERPRETER"
+test_case "[connected-word] taskset before bash" "taskset 1 bash <<'EOF'
+ls
+EOF" 2 "$HEREDOC_INTERPRETER"
+test_case "[connected-word] chrt before bash" "chrt 5 bash <<'EOF'
+ls
+EOF" 2 "$HEREDOC_INTERPRETER"
+test_case "[connected-word] script before bash" "script -q /dev/null bash <<'EOF'
+ls
+EOF" 2 "$HEREDOC_INTERPRETER"
+test_case "[connected-word] cat heredoc piped to caffeinate bash" "cat <<'EOF' | caffeinate bash
+ls
+EOF" 2 "$HEREDOC_INTERPRETER"
+test_case "[connected-word] cat heredoc piped to docker exec sh" "cat <<'EOF' | docker exec -i c sh
+ls
+EOF" 2 "$HEREDOC_INTERPRETER"
+test_case "[connected-word] cat heredoc piped to caffeinate tee" "cat <<'EOF' | caffeinate tee /tmp/f
+y
+EOF" 2 "$HEREDOC_FILE"
+test_case "[connected-word] arch before tee" "arch -arm64 tee /tmp/f <<'EOF'
+y
+EOF" 2 "$HEREDOC_FILE"
+test_case "[connected-word] bash in a while body, heredoc on done" "while read x; do bash; done <<'EOF'
+ls
+EOF" 2 "$HEREDOC_INTERPRETER"
+test_case "[connected-word] bash after a case pattern" "case x in x) bash <<'EOF'
+ls
+EOF" 2 "$HEREDOC_INTERPRETER"
+test_case "[connected-word] bash in a function keyword body" "function f { bash <<'EOF'
+ls
+EOF" 2 "$HEREDOC_INTERPRETER"
+test_case "[connected-word] coproc bash" "coproc bash <<'EOF'
+ls
+EOF" 2 "$HEREDOC_INTERPRETER"
+test_case "[connected-word] builtin eval" "builtin eval \"\$(cat)\" <<'EOF'
+ls
+EOF" 2 "$HEREDOC_INTERPRETER"
+test_case "[connected-word] a function defined to run bash, then called" "f() { bash; }; f <<'EOF'
+ls
+EOF" 2 "$HEREDOC_INTERPRETER"
+test_case "[connected-word] bash in a compound after a pipe" "cat <<'EOF' | if true; then bash; fi
+ls
+EOF" 2 "$HEREDOC_INTERPRETER"
+test_case "[connected-word] cat that is not first in the group" "{ echo hi; cat > /tmp/f; } <<'EOF'
+y
+EOF" 2 "$HEREDOC_FILE"
+test_case "[connected-word] bash in a multi-line group" "{
+bash
+} <<'EOF'
+ls
+EOF" 2 "$HEREDOC_INTERPRETER"
+test_case "[connected-word] an unquoted interpreter word as an argument fails closed" "cat <<'EOF' | gh issue create --title python3 --body-file -
+body
+EOF" 2 "$HEREDOC_INTERPRETER"
+
+test_case "[connected-word] a variable in an earlier command does not change a file heredoc's class" "S=/tmp/x; mkdir -p \$S; cat > \$S/p.txt <<'EOF'
+y
+EOF" 2 "$HEREDOC_FILE"
+
+test_case "[whole-command] bash -c fed by a heredoc substitution" $'bash -c "$(cat <<\'EOF\'\nrm -rf "$X"\nEOF\n)"' 2 "$HEREDOC_INTERPRETER"
+test_case "[whole-command] python3 -c fed by a heredoc substitution" $'python3 -c "$(cat <<\'EOF\'\nprint(1)\nEOF\n)"' 2 "$HEREDOC_INTERPRETER"
+test_case "[whole-command] perl -e fed by a heredoc substitution" $'perl -e "$(cat <<\'EOF\'\nprint 1\nEOF\n)"' 2 "$HEREDOC_INTERPRETER"
+test_case "[whole-command] node -e fed by a heredoc substitution" $'node -e "$(cat <<\'EOF\'\nconsole.log(1)\nEOF\n)"' 2 "$HEREDOC_INTERPRETER"
+test_case "[whole-command] eval of a heredoc substitution" $'eval "$(cat <<\'EOF\'\nrm -rf "$X"\nEOF\n)"' 2 "$HEREDOC_INTERPRETER"
+test_case "[whole-command] bash fed a here-string holding a heredoc substitution" $'bash <<<"$(cat <<\'EOF\'\nrm -rf "$X"\nEOF\n)"' 2 "$HEREDOC_INTERPRETER"
+test_case "[whole-command] a group piped to bash" $'{ cat <<\'EOF\'; } | bash\nrm -rf "$X"\nEOF' 2 "$HEREDOC_INTERPRETER"
+test_case "[whole-command] a subshell piped to bash" $'( cat <<\'EOF\'; ) | bash\nrm -rf "$X"\nEOF' 2 "$HEREDOC_INTERPRETER"
+test_case "[whole-command] an if piped to bash" $'if true; then cat <<\'EOF\'; fi | bash\nrm -rf "$X"\nEOF' 2 "$HEREDOC_INTERPRETER"
+test_case "[whole-command] a multi-line group piped to bash" $'{\ncat <<\'EOF\'\nrm -rf "$X"\nEOF\n} | bash' 2 "$HEREDOC_INTERPRETER"
+test_case "[whole-command] a pipe continued after the body" $'cat <<\'EOF\' |\nrm -rf "$X"\nEOF\nbash' 2 "$HEREDOC_INTERPRETER"
+test_case "[whole-command] a function piped into" $'f() { bash; }; cat <<\'EOF\' | f\nrm -rf "$X"\nEOF' 2 "$HEREDOC_INTERPRETER"
+test_case "[whole-command] a function called after a negation" $'f() { bash; }; ! f <<\'EOF\'\nrm -rf "$X"\nEOF' 2 "$HEREDOC_INTERPRETER"
+test_case "[whole-command] a function called inside the group fed the heredoc" $'f() { bash; }; { f; } <<\'EOF\'\nrm -rf "$X"\nEOF' 2 "$HEREDOC_INTERPRETER"
+test_case "[whole-command] a multi-line function piped into" $'f() {\n bash\n}\ncat <<\'EOF\' | f\nrm -rf "$X"\nEOF' 2 "$HEREDOC_INTERPRETER"
+test_case "[whole-command] a quoted variable as the consumer" $'"$SHELL" <<\'EOF\'\nrm -rf "$X"\nEOF' 2 "$HEREDOC_INTERPRETER"
+test_case "[whole-command] a quoted variable as the pipe target" $'cat <<\'EOF\' | "$SHELL"\nrm -rf "$X"\nEOF' 2 "$HEREDOC_INTERPRETER"
+test_case "[whole-command] a quoted variable after timeout" $'timeout 5 "$SHELL" <<\'EOF\'\nrm -rf "$X"\nEOF' 2 "$HEREDOC_INTERPRETER"
+test_case "[whole-command] a variable inside the group fed the heredoc" $'{ $SHELL; } <<\'EOF\'\nrm -rf "$X"\nEOF' 2 "$HEREDOC_INTERPRETER"
+test_case "[whole-command] a variable in a while body" $'while read l; do $SHELL; done <<\'EOF\'\nrm -rf "$X"\nEOF' 2 "$HEREDOC_INTERPRETER"
+test_case "[whole-command] a variable in a compound after a pipe" $'cat <<\'EOF\' | if true; then $SHELL; fi\nrm -rf "$X"\nEOF' 2 "$HEREDOC_INTERPRETER"
+test_case "[whole-command] bash inside a process substitution" $'cat <<\'EOF\' | tee >(bash)\nrm -rf "$X"\nEOF' 2 "$HEREDOC_INTERPRETER"
+test_case "[whole-command] source of stdin" $'source /dev/stdin <<\'EOF\'\nrm -rf "$X"\nEOF' 2 "$HEREDOC_INTERPRETER"
+test_case "[whole-command] dot of stdin" $'. /dev/stdin <<\'EOF\'\nrm -rf "$X"\nEOF' 2 "$HEREDOC_INTERPRETER"
+test_case "[whole-command] sudo -s reading a script" $'sudo -s <<\'EOF\'\nrm -rf "$X"\nEOF' 2 "$DELETION"
+test_case "[whole-command] su reading a script" $'su root <<\'EOF\'\nrm -rf "$X"\nEOF' 2 "$DELETION"
+test_case "[whole-command] ssh reading a script" $'ssh host <<\'EOF\'\nrm -rf "$X"\nEOF' 2 "$DELETION"
+test_case "[whole-command] cd to a variable before a commit heredoc names git -C" $'cd "$WT" && git commit -m "$(cat <<\'EOF\'\nmsg\nEOF\n)"' 2 "$HEREDOC_INTERPRETER"
+test_case "[whole-command] an unallowlisted consumer's body is scanned" $'kubectl apply -f - <<\'EOF\'\nrm -rf "$X"\nEOF' 2 "$DELETION"
+for shell_name in fish csh tcsh awk gawk php lua osascript deno bun; do
+  test_case "[whole-command] $shell_name reading a heredoc" "$shell_name <<'EOF'
+ls
+EOF" 2 "$HEREDOC_INTERPRETER"
+done
+
+test_case "[allowed-idiom] a bare cat heredoc whose body names every blocked shape" $'cat <<\'EOF\'\nrm -rf "$X"; bash; cat <<E > f\nEOF' 0
+test_case "[allowed-idiom] a cat heredoc to stderr whose body names a deletion" $'cat <<\'EOF\' >&2\nrm -rf "$X"\nEOF' 0
+test_case "[allowed-idiom] gh pr create with a python title and a hostile body" $'gh pr create --title "Support python" --body-file - <<\'EOF\'\nbody\nrm -rf "$X"\nEOF' 0
+test_case "[allowed-idiom] git -C a variable commit with a substituted heredoc message" $'git -C "$WT" commit -m "$(cat <<\'EOF\'\nfeat: add bash support\nEOF\n)"' 0
+test_case "[allowed-idiom] git -C a variable commit -F - with a hostile body" $'git -C "$WT" commit -F - <<\'EOF\'\nrm -rf "$X"\nEOF' 0
+test_case "[allowed-idiom] dashboard item add with a hostile substituted body" $'dashboard item add --body "$(cat <<\'EOF\'\nexec bash\nrm -rf "$X"\nEOF\n)"' 0
+test_case "[allowed-idiom] git commit -F - with a hostile body" $'git commit -F - <<\'EOF\'\nrm -rf "$X"; bash; cat <<E > f\nEOF' 0
+
+deep_delete='rm -f /tmp/a'
+deep_heredoc=$'python3 <<\'IN\'\nprint(1)\nIN'
+for level in $(seq 1100); do
+  deep_delete="echo \$($deep_delete)"
+  deep_heredoc=$'cat <<E'"$level"$'\n$('"$deep_heredoc"$'\n)\nE'"$level"
+done
+test_case "[deep-nesting] a deletion 1100 substitutions deep still blocks" "$deep_delete" 2 "$DELETION"
+test_case "[deep-nesting] an interpreter heredoc 1100 substitutions deep still blocks" "$deep_heredoc" 2 "$HEREDOC_INTERPRETER"
 
 echo
 echo "=== Results: $PASS passed, $FAIL failed ==="
+
+if [[ -n "${ONLY:-}" && "$MATCHED" -eq 0 ]]; then
+  echo "No test description contains ONLY=\"$ONLY\""
+  exit 1
+fi
 
 if [[ "$FAIL" -gt 0 ]]; then
   exit 1

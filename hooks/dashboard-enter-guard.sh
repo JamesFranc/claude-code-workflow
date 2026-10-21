@@ -64,7 +64,7 @@ import bisect, re, shlex, sys
 # is_interpreter / line_fragments / is_data_sink / is_outside_quotes / strip_heredocs /
 # is_boundary and the segment-building loop) is duplicated, not extracted into a shared module,
 # across six hooks -- this file, pr-title-guard.sh, no-verify-guard.sh, pr-merge-guard.sh,
-# pr-lifecycle-guard.sh, and process-kill-guard.sh (FLOW-228). Each hook is invoked directly by
+# pr-lifecycle-guard.sh, and dangerous-command-guard.sh (FLOW-228). Each hook is invoked directly by
 # absolute path by the Claude Code harness, so a source'd or imported helper introduces a failure
 # mode the current design does not have: a hook that cannot find its dependency fails IN THE
 # HARNESS, silently disabling the guard, not in a test where someone is watching. The duplication
@@ -76,7 +76,7 @@ import bisect, re, shlex, sys
 
 def raw_substitution_spans(command):
     # Defined in all six hooks for the shared-analyzer byte-identical convention, but only
-    # called by the three unconditional hooks (process-kill-guard.sh, no-verify-guard.sh,
+    # called by the three unconditional hooks (dangerous-command-guard.sh, no-verify-guard.sh,
     # pr-merge-guard.sh) -- dead code in the other three, on purpose; look for the call site in
     # THIS hook's own tail before assuming it's used here.
     #
@@ -337,18 +337,11 @@ def consumer_words(line):
     # the word in consumer position, still checked by line_has_interpreter()/the opaque check --
     # an incomplete skip list costs precision, not safety, the opposite failure direction.
     #
-    # KNOWN, NOT covered by this round: a wrapper that takes its OWN argument before the real
-    # consumer ('timeout 5 $SHELL', 'nice -n 10 $SHELL') hides an opaque consumer this fix does
-    # not catch, since only the bare wrapper NAME is skipped, not a following flag/value -- and
-    # with $SHELL specifically, which bash sets itself whenever it is not already inherited, this
-    # is live in EVERY environment, not a theoretical variable that happens to be unset in most of
-    # them (an earlier draft of this note used $CMD, populated in essentially no environment,
-    # which understated how live this gap actually is -- corrected after measuring both under a
-    # bare 'env -i': $CMD genuinely inert there, $SHELL genuinely not). Not fixed in this round:
-    # the argument shapes differ per wrapper (a duration, a niceness level, a signal number, ...)
-    # and handling them would mean wrapper-specific parsing, a larger change than this report
-    # covers. Flagged, not silently left, for the same reason every other scope boundary on this
-    # ticket is written down instead of discovered later.
+    # Not covered here: a wrapper that takes its OWN argument before the real consumer
+    # ('timeout 5 $SHELL', 'nice -n 10 $SHELL') hides an opaque consumer from this function, since
+    # only the bare wrapper NAME is skipped. dangerous-command-guard.sh reads every word of the
+    # whole command outside the heredoc bodies instead of resolving a consumer, so it blocks these shapes;
+    # the other guards sharing this function do not.
     words = []
     for stage in line.split('|'):
         stage = stage.strip()

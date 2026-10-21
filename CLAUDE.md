@@ -37,6 +37,20 @@ A Claude Code workflow plugin: skills, hooks, agents, commands, and TypeScript C
   It never changes the snapshot repo's visibility. To check a snapshot clone, run
   `pnpm publish-check --repo "<clone>" --terms "<source>/.private-terms.json"` from a source
   checkout, since the snapshot carries no terms file.
+  After publishing, the job creates the matching GitHub release on the snapshot repo, with notes
+  rewritten by `pnpm snapshot-release-notes`: the source release's notes with links into the source
+  repo unwrapped, PR and commit references removed and ticket prefixes stripped. If the rewritten
+  notes still hold the source repo's name, a term from `.private-terms.json`, a credential, a
+  home-directory path, a `#N` reference or a ticket key, it refuses and the release is not created.
+  A rerun of a failed job creates a release that is still missing, but only while the released
+  commit is still the tip of `origin/main`, since the rerun publishes the snapshot first, and only
+  when the step did not fail on a refusal of the notes, which a rerun repeats. Otherwise create the
+  release by hand. If the notes pass, run
+  `pnpm --silent snapshot-release-notes --file "<source notes>" --source-repo "<owner/name>" --terms .private-terms.json > "<public notes>"`,
+  then
+  `gh release create "v<version>" -R "<snapshot repo>" --title "v<version>" --notes-file "<public notes>" --verify-tag`.
+  If they are refused, edit the source notes by hand to drop what the refusal names, then do the same
+  with the edited file.
 - **Test:** `pnpm test` — `tools/cli`'s suite is capped at 4 concurrent workers on hosts with 5 or
   more cores, and at Node's own `availableParallelism() - 1`, never below 1, on smaller ones.
   Several agent worktrees run this suite at once, and an inherited default means each one sizes

@@ -12,7 +12,9 @@
 # Each state change is printed to stderr the moment it happens, so the agent knows it is waiting and
 # on whom, and does not retry. While waiting and while running it beats the board session: the
 # session's own waker beats only after tool activity, and an agent waiting on a long background run
-# makes none, so without this the board would mark it hung.
+# makes none, so without this the board would mark it hung. A teammate's beat reaches its lead's node
+# too (`dashboard session heartbeat` finds the lead that spawned it), so `--beat` is only for
+# beating a session other than the caller's own.
 #
 # Runs on macOS's /bin/bash 3.2: no {fd} redirections, no ${var@Q}.
 

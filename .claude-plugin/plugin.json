@@ -1,7 +1,7 @@
 {
   "name": "workflow",
   "description": "Workflow skills, hooks, agents, and tools for Claude Code",
-  "version": "1.100.0",
+  "version": "1.101.0",
   "license": "GPL-3.0-or-later",
   "author": {
     "name": "Michael D. Norman"

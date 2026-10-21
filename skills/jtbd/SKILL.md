@@ -1,5 +1,5 @@
 ---
-name: Jobs to be Done (JTBD)
+name: jtbd
 description: Use when starting substantial new work — a feature or anything with real design space — to understand what problem needs solving before jumping to solutions. Gathers context, asks Socratic questions, outputs a PRD, and creates a Jira epic or ticket. Triggers on new features and "what should we build" conversations. For small, well-understood changes that aren't bugs, use Quick Change (`workflow:quick-change`) instead.
 ---
 

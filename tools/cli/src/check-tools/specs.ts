@@ -22,4 +22,11 @@ export const TOOL_SPECS: Readonly<Record<string, ToolSpec>> = {
       'STOP and tell the user ElevenLabs is configured but walkthrough render cannot voice the narration. Do NOT fall back.',
     requiresAll: ['ELEVEN_LABS_API_KEY'],
   },
+  'mac-voice': {
+    tool: 'mac-voice',
+    use: 'A macOS voice narrating walkthrough videos',
+    onFailure:
+      'STOP and tell the user a macOS voice is configured but walkthrough render cannot voice the narration with it. Do NOT fall back.',
+    requiresAll: ['WALKTHROUGH_MAC_VOICE'],
+  },
 }

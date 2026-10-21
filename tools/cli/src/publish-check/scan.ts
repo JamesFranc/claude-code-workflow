@@ -66,6 +66,10 @@ interface LinePattern {
 const linePatterns = (terms: PrivateTerms): LinePattern[] => [
   { class: 'credential', pattern: CREDENTIAL_PATTERN },
   { class: 'home-directory', pattern: HOME_DIRECTORY_PATTERN },
+  ...termPatterns(terms),
+]
+
+const termPatterns = (terms: PrivateTerms): LinePattern[] => [
   ...terms.handles.map((term): LinePattern => ({
     class: 'personal-handle',
     pattern: wordPattern(term),
@@ -83,6 +87,11 @@ const linePatterns = (terms: PrivateTerms): LinePattern[] => [
     pattern: wordPattern(phrase),
   })),
 ]
+
+// What scanExportSet refuses in any line of text, other than a licence or export-set problem, so a
+// credential comes back redacted and a placeholder home directory is exempt.
+export const privateTextMatches = (text: string, terms: PrivateTerms): string[] =>
+  findIn(text, linePatterns(terms)).map((hit) => hit.match)
 
 const scanFile = (dir: string, path: string, patterns: readonly LinePattern[]): Finding[] => [
   ...findIn(path, patterns).map((hit) => toFinding(path, hit)),
